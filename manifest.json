@@ -1,0 +1,14 @@
+{
+  "display_name": "Memorize: Time Photo Studio",
+  "description": "📸 Чиби-хранители памяти Лу Гуан и Чэн Сяоши (Фотоателье «Время»): авто-выжимка сюжета (Summarize), карточки фактов (Memory Book), откат снимков и подключение своего API с ключом.",
+  "loading_order": 55,
+  "requires": [],
+  "optional": [],
+  "dependencies": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "ridaginz-web",
+  "version": "1.1.0",
+  "homePage": "https://github.com/ridaginz-web/st-memorize",
+  "auto_update": true
+}
