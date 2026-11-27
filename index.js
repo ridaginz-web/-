@@ -891,7 +891,11 @@ function renderWidgetMascot() {
   const s = getSettings();
   const mode = s.mascotMode || 'duo';
   wrap.className = `mem-mascot-wrap ${mode === 'duo' ? 'mode-duo' : 'mode-single'}`;
-  wrap.innerHTML = `${getMascotSVG(mode)}<span id="memorize-fact-count" class="mem-corner-badge">0</span>`;
+  wrap.innerHTML = `
+    ${getMascotSVG(mode)}
+    <span id="memorize-flash-badge" class="mem-flash-indicator" title="Заряжен флешбек для персонажа">📸</span>
+    <span id="memorize-fact-count" class="mem-corner-badge">0</span>
+  `;
   updateWidgetBadge();
 }
 
@@ -900,6 +904,11 @@ function updateWidgetBadge() {
   const activeCount = store.facts.filter((f) => f.enabled !== false).length;
   const badge = document.getElementById('memorize-fact-count');
   if (badge) badge.textContent = String(activeCount);
+
+  const flashBadge = document.getElementById('memorize-flash-badge');
+  if (flashBadge) {
+    flashBadge.classList.toggle('active', Boolean(store.activeFlashback?.text));
+  }
 
   const widget = document.getElementById('memorize-chibi-widget');
   const settings = getSettings();
@@ -1017,10 +1026,22 @@ function createModal() {
           <div id="mem-seg-chronicle" class="mem-seg-item">Хроника</div>
         </div>
         <div class="mem-actions-inline">
-          <div id="mem-run-extract" class="mem-chip accent" title="Сжать новые сообщения сейчас">✨ Обновить</div>
+          <div id="mem-run-extract" class="mem-chip accent" title="Сжать новые сообщения сейчас">✨ Сжать</div>
           <div id="mem-rollback-btn" class="mem-chip" title="Откат Лу Гуана к прошлому снимку">⏪</div>
           <div id="mem-clear-all" class="mem-chip" title="Очистить память этого чата">🗑</div>
         </div>
+      </div>
+
+      <div class="mem-top-controls">
+        <div class="mem-search-row">
+          <div class="mem-search-box">
+            <span class="mem-search-icon">🔍</span>
+            <input id="mem-search-input" type="text" placeholder="Найти момент для флешбека..." />
+            <span id="mem-search-clear" class="mem-search-clear" style="display:none;" title="Очистить поиск">✕</span>
+          </div>
+          <div id="mem-toggle-add" class="mem-toggle-add-btn" title="Добавить факт вручную">+</div>
+        </div>
+        <div id="mem-cat-strip" class="mem-cat-strip"></div>
       </div>
 
       <div id="mem-sheet-body" class="mem-sheet-body"></div>
@@ -1050,6 +1071,7 @@ function createModal() {
     store.coreCanon = '';
     store.chapters = [];
     store.facts = [];
+    store.activeFlashback = null;
     store.lastProcessedIndex = 0;
     await saveChatStore();
     renderModalContent();
@@ -1064,6 +1086,32 @@ function createModal() {
     activeView = 'chronicle';
     renderModalContent();
   });
+
+  const searchInp = document.getElementById('mem-search-input');
+  const searchClear = document.getElementById('mem-search-clear');
+  searchInp.addEventListener('input', () => {
+    searchQuery = searchInp.value || '';
+    searchClear.style.display = searchQuery ? 'inline' : 'none';
+    renderModalContent();
+  });
+
+  searchClear.addEventListener('click', () => {
+    searchQuery = '';
+    searchInp.value = '';
+    searchClear.style.display = 'none';
+    renderModalContent();
+  });
+
+  document.getElementById('mem-toggle-add').addEventListener('click', () => {
+    quickAddOpen = !quickAddOpen;
+    if (quickAddOpen && activeCategory !== 'all') {
+      quickAddCat = activeCategory;
+    }
+    renderModalContent();
+    if (quickAddOpen) {
+      setTimeout(() => document.getElementById('mem-quick-fact-input')?.focus(), 40);
+    }
+  });
 }
 
 function openModal() {
@@ -1073,7 +1121,37 @@ function openModal() {
 }
 
 function closeModal() {
+  editingFactId = null;
   document.getElementById('memorize-modal-backdrop')?.classList.remove('open');
+}
+
+function renderFlashbackBanner(store) {
+  const fb = store.activeFlashback;
+  if (!fb || !fb.text?.trim()) return '';
+  return `
+    <div class="mem-flashback-banner">
+      <div class="mem-fb-head">
+        <span>📸 Флешбек выбран для персонажа</span>
+        <span id="mem-cancel-fb" style="cursor:pointer;color:var(--mem-sub);font-weight:500;">✕ Снять</span>
+      </div>
+      <div class="mem-fb-quote">«${escapeHtml(fb.text)}»</div>
+      <div class="mem-fb-actions">
+        <span class="mem-fb-hint">Вплетается в следующий ответ бота</span>
+        <div id="mem-fire-fb-now" class="mem-chip gold">⚡ Вспомнить сейчас</div>
+      </div>
+    </div>
+  `;
+}
+
+function bindFlashbackBannerEvents(store) {
+  document.getElementById('mem-cancel-fb')?.addEventListener('click', async () => {
+    store.activeFlashback = null;
+    await saveChatStore();
+    renderModalContent();
+  });
+  document.getElementById('mem-fire-fb-now')?.addEventListener('click', () => {
+    triggerFlashbackNow();
+  });
 }
 
 function renderModalContent() {
@@ -1084,6 +1162,7 @@ function renderModalContent() {
   const settings = getSettings();
   const promptText = buildPromptText();
   const tokens = estimateTokens(promptText);
+  const qLower = searchQuery.trim().toLowerCase();
 
   // Статус инжекта в промпт
   const statusEl = document.getElementById('mem-prompt-status');
@@ -1093,7 +1172,7 @@ function renderModalContent() {
     } else if (!settings.enabled) {
       statusEl.innerHTML = `<span class="mem-dot off"></span><span>Память выключена в настройках</span>`;
     } else {
-      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Пока пусто — нажмите «✨ Обновить»</span>`;
+      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Пока пусто — нажмите «✨ Сжать»</span>`;
     }
   }
 
@@ -1108,42 +1187,135 @@ function renderModalContent() {
     segChron.classList.toggle('active', activeView === 'chronicle');
   }
 
+  const addToggleBtn = document.getElementById('mem-toggle-add');
+  if (addToggleBtn) {
+    addToggleBtn.classList.toggle('open', quickAddOpen);
+    addToggleBtn.style.display = activeView === 'facts' ? 'inline-flex' : 'none';
+  }
+
+  // Вкладки категорий: Все · События · Отношения · Секреты · Сцена
+  const catStrip = document.getElementById('mem-cat-strip');
+  if (catStrip) {
+    if (activeView !== 'facts') {
+      catStrip.style.display = 'none';
+    } else {
+      catStrip.style.display = 'flex';
+      const pills = [
+        { key: 'all', label: 'Все', count: store.facts.length },
+        ...CATEGORY_KEYS.map((k) => ({
+          key: k,
+          label: `${CATEGORIES[k].icon} ${CATEGORIES[k].label}`,
+          count: store.facts.filter((f) => normalizeCategory(f.category, f.text) === k).length,
+        })),
+      ];
+
+      catStrip.innerHTML = pills
+        .map(
+          (p) => `
+          <div class="mem-cat-pill ${activeCategory === p.key ? 'active' : ''}" data-cat="${p.key}">
+            <span>${escapeHtml(p.label)}</span>
+            <span class="mem-cat-count">${p.count}</span>
+          </div>`
+        )
+        .join('');
+
+      catStrip.querySelectorAll('.mem-cat-pill').forEach((pill) => {
+        pill.addEventListener('click', () => {
+          activeCategory = pill.dataset.cat || 'all';
+          if (activeCategory !== 'all') quickAddCat = activeCategory;
+          renderModalContent();
+        });
+      });
+    }
+  }
+
   const body = document.getElementById('mem-sheet-body');
   if (!body) return;
 
   if (activeView === 'facts') {
+    const filtered = store.facts.filter((f) => {
+      const catOk = activeCategory === 'all' || normalizeCategory(f.category, f.text) === activeCategory;
+      const searchOk = !qLower || String(f.text || '').toLowerCase().includes(qLower);
+      return catOk && searchOk;
+    });
+
+    const quickAddHtml = quickAddOpen
+      ? `
+      <div class="mem-quick-add">
+        <span id="mem-quick-cat-btn" class="mem-quick-cat-cycle" title="Сменить рубрику факта">
+          ${CATEGORIES[quickAddCat]?.icon || '⏳'} ${CATEGORIES[quickAddCat]?.label || 'События'}
+        </span>
+        <input id="mem-quick-fact-input" type="text" placeholder="Новый важный факт..." />
+        <div id="mem-quick-fact-btn" class="mem-quick-add-btn">＋</div>
+      </div>`
+      : '';
+
     const rowsHtml =
-      store.facts.length === 0
-        ? `<div class="mem-empty-hint">Здесь будут ключевые факты чата без лишней воды.<br>Нажмите <b>«✨ Обновить»</b> вверху или запишите факт сами.</div>`
-        : `<div class="mem-clean-list">` +
-          store.facts
-            .map(
-              (f) => `
-              <div class="mem-fact-row ${f.locked ? 'locked' : ''} ${f.enabled === false ? 'muted' : ''}" data-id="${escapeHtml(f.id)}">
-                <span class="mem-pin-dot" title="Закрепить факт от перезаписи">${f.locked ? '📌' : '•'}</span>
-                <textarea rows="1" class="mem-fact-edit">${escapeHtml(f.text)}</textarea>
+      filtered.length === 0
+        ? `<div class="mem-empty-hint">${
+            qLower
+              ? 'По этому запросу фактов не нашлось 🔍'
+              : 'В этой вкладке пока пусто.<br>Нажмите <b>«✨ Сжать»</b> вверху или <b>«+»</b>, чтобы добавить факт.'
+          }</div>`
+        : `<div class="mem-subhint">💡 Нажми на текст факта — и персонаж вспомнит этот момент (Флешбек)</div>
+           <div class="mem-clean-list">` +
+          filtered
+            .map((f) => {
+              const catKey = normalizeCategory(f.category, f.text);
+              const catMeta = CATEGORIES[catKey] || CATEGORIES.events;
+              const isArmed = store.activeFlashback?.id === f.id;
+              const isEditing = editingFactId === f.id;
+
+              return `
+              <div class="mem-fact-row ${f.locked ? 'locked' : ''} ${f.enabled === false ? 'muted' : ''} ${
+                isArmed ? 'flashback-armed' : ''
+              }" data-id="${escapeHtml(f.id)}">
+                <span class="mem-cat-badge" title="${escapeHtml(catMeta.full)} (нажми, чтобы сменить рубрику)">${
+                catMeta.icon
+              }</span>
+                ${
+                  isEditing
+                    ? `<textarea rows="1" class="mem-fact-edit">${escapeHtml(f.text)}</textarea>`
+                    : `<div class="mem-fact-text-view" title="Нажми, чтобы вызвать флешбек у персонажа">${highlightMatch(
+                        f.text,
+                        searchQuery
+                      )}</div>`
+                }
                 <div class="mem-row-tools">
-                  <span class="mem-mini-act act-mute" title="Включить/выключить в промпте">${f.enabled === false ? '🙈' : '👁'}</span>
+                  <span class="mem-mini-act act-edit" title="Редактировать текст">✎</span>
+                  <span class="mem-mini-act act-pin ${f.locked ? 'pinned' : ''}" title="Закрепить от перезаписи">${
+                f.locked ? '📌' : '📍'
+              }</span>
+                  <span class="mem-mini-act act-mute" title="Вкл/выкл в общем промпте">${
+                    f.enabled === false ? '🙈' : '👁'
+                  }</span>
                   <span class="mem-mini-act act-del" title="Удалить">✕</span>
                 </div>
-              </div>`
-            )
+              </div>`;
+            })
             .join('') +
           `</div>`;
 
-    body.innerHTML = `
-      <div class="mem-quick-add">
-        <input id="mem-quick-fact-input" type="text" placeholder="Добавить важный факт..." />
-        <div id="mem-quick-fact-btn" class="mem-quick-add-btn" title="Добавить">+</div>
-      </div>
-      ${rowsHtml}
-    `;
+    body.innerHTML = `${renderFlashbackBanner(store)}${quickAddHtml}${rowsHtml}`;
+    bindFlashbackBannerEvents(store);
+
+    document.getElementById('mem-quick-cat-btn')?.addEventListener('click', () => {
+      const nextIdx = (CATEGORY_KEYS.indexOf(quickAddCat) + 1) % CATEGORY_KEYS.length;
+      quickAddCat = CATEGORY_KEYS[nextIdx];
+      renderModalContent();
+    });
 
     const addFactNow = async () => {
       const inp = document.getElementById('mem-quick-fact-input');
       const val = inp?.value?.trim();
       if (!val) return;
-      store.facts.unshift({ id: uid('f'), text: val, enabled: true, locked: true });
+      store.facts.unshift({
+        id: uid('f'),
+        category: quickAddCat || 'events',
+        text: val,
+        enabled: true,
+        locked: true,
+      });
       inp.value = '';
       await saveChatStore();
       renderModalContent();
@@ -1159,28 +1331,66 @@ function renderModalContent() {
       const fact = store.facts.find((x) => x.id === id);
       if (!fact) return;
 
-      const ta = row.querySelector('.mem-fact-edit');
-      autoResizeTextarea(ta);
-      ta.addEventListener('input', () => autoResizeTextarea(ta));
-      ta.addEventListener('change', async () => {
-        fact.text = ta.value.trim();
+      row.querySelector('.mem-cat-badge')?.addEventListener('click', async () => {
+        const cur = normalizeCategory(fact.category, fact.text);
+        fact.category = CATEGORY_KEYS[(CATEGORY_KEYS.indexOf(cur) + 1) % CATEGORY_KEYS.length];
         await saveChatStore();
         renderModalContent();
       });
 
-      row.querySelector('.mem-pin-dot').addEventListener('click', async () => {
+      row.querySelector('.mem-fact-text-view')?.addEventListener('click', async () => {
+        if (store.activeFlashback?.id === fact.id) {
+          store.activeFlashback = null;
+        } else {
+          store.activeFlashback = { id: fact.id, text: fact.text, firedCount: 0 };
+        }
+        await saveChatStore();
+        renderModalContent();
+      });
+
+      const editTa = row.querySelector('.mem-fact-edit');
+      if (editTa) {
+        autoResizeTextarea(editTa);
+        editTa.focus();
+        editTa.addEventListener('input', () => autoResizeTextarea(editTa));
+        const commitEdit = async () => {
+          const nextText = editTa.value.trim();
+          if (nextText) fact.text = nextText;
+          if (store.activeFlashback?.id === fact.id && nextText) {
+            store.activeFlashback.text = nextText;
+          }
+          editingFactId = null;
+          await saveChatStore();
+          renderModalContent();
+        };
+        editTa.addEventListener('blur', commitEdit);
+        editTa.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            editTa.blur();
+          }
+        });
+      }
+
+      row.querySelector('.act-edit')?.addEventListener('click', () => {
+        editingFactId = editingFactId === fact.id ? null : fact.id;
+        renderModalContent();
+      });
+
+      row.querySelector('.act-pin')?.addEventListener('click', async () => {
         fact.locked = !fact.locked;
         await saveChatStore();
         renderModalContent();
       });
 
-      row.querySelector('.act-mute').addEventListener('click', async () => {
+      row.querySelector('.act-mute')?.addEventListener('click', async () => {
         fact.enabled = fact.enabled === false;
         await saveChatStore();
         renderModalContent();
       });
 
-      row.querySelector('.act-del').addEventListener('click', async () => {
+      row.querySelector('.act-del')?.addEventListener('click', async () => {
+        if (store.activeFlashback?.id === fact.id) store.activeFlashback = null;
         store.facts = store.facts.filter((x) => x.id !== id);
         await saveChatStore();
         renderModalContent();
@@ -1190,28 +1400,46 @@ function renderModalContent() {
   }
 
   // Вкладка «Хроника»
+  const visibleChapters = store.chapters
+    .map((ch, idx) => ({ ch, idx }))
+    .filter(({ ch }) => !qLower || String(ch.text || '').toLowerCase().includes(qLower));
+
   const chaptersHtml =
-    store.chapters.length === 0
-      ? `<div class="mem-empty-hint" style="padding:12px;">Главы появятся автоматически по мере продвижения ролевой ✨</div>`
-      : store.chapters
-          .map(
-            (ch, idx) => `
-            <div class="mem-chapter-item" data-idx="${idx}">
+    visibleChapters.length === 0
+      ? `<div class="mem-empty-hint" style="padding:12px;">${
+          qLower ? 'Глав по этому запросу не найдено 🔍' : 'Главы появятся автоматически по мере продвижения ролевой ✨'
+        }</div>`
+      : visibleChapters
+          .map(({ ch, idx }) => {
+            const chId = ch.id || `ch_${idx}`;
+            const isArmed = store.activeFlashback?.id === chId;
+            return `
+            <div class="mem-chapter-item ${isArmed ? 'flashback-armed' : ''}" data-idx="${idx}" style="${
+              isArmed ? 'border-left-color:var(--mem-gold);background:rgba(255,217,125,0.08);' : ''
+            }">
               <div class="mem-chapter-meta">
                 <span>Сообщения ${escapeHtml(ch.range || `#${idx + 1}`)}</span>
-                <span class="mem-mini-act ch-del" title="Удалить главу">✕</span>
+                <div style="display:inline-flex;gap:4px;">
+                  <span class="mem-mini-act ch-fb" title="Вызвать флешбек по этой главе">📸</span>
+                  <span class="mem-mini-act ch-del" title="Удалить главу">✕</span>
+                </div>
               </div>
-              <textarea rows="1" class="mem-fact-edit ch-edit">${escapeHtml(ch.text)}</textarea>
-            </div>`
-          )
+              <textarea rows="1" class="mem-fact-edit ch-edit" style="background:transparent!important;border:none!important;padding:0;">${escapeHtml(
+                ch.text
+              )}</textarea>
+            </div>`;
+          })
           .join('');
 
   body.innerHTML = `
+    ${renderFlashbackBanner(store)}
     <div class="mem-canon-card">
       <div class="mem-section-label">
         <span>Основа сюжета (долгосрочный канон)</span>
       </div>
-      <textarea id="mem-canon-input" class="mem-canon-textarea" placeholder="Сюда автоматически уплотняются старые главы больших чатов (можно редактировать вручную)...">${escapeHtml(store.coreCanon || '')}</textarea>
+      <textarea id="mem-canon-input" class="mem-canon-textarea" placeholder="Сюда автоматически уплотняются старые главы больших чатов (можно редактировать вручную)...">${escapeHtml(
+        store.coreCanon || ''
+      )}</textarea>
     </div>
 
     <div class="mem-section-label" style="padding:2px 2px 0;">
@@ -1225,6 +1453,8 @@ function renderModalContent() {
 
     <div class="mem-clean-list">${chaptersHtml}</div>
   `;
+
+  bindFlashbackBannerEvents(store);
 
   const canonInput = document.getElementById('mem-canon-input');
   autoResizeTextarea(canonInput);
@@ -1244,6 +1474,7 @@ function renderModalContent() {
     const idx = Number(item.dataset.idx);
     const ch = store.chapters[idx];
     if (!ch) return;
+    if (!ch.id) ch.id = uid('ch');
 
     const ta = item.querySelector('.ch-edit');
     autoResizeTextarea(ta);
@@ -1254,7 +1485,18 @@ function renderModalContent() {
       renderModalContent();
     });
 
+    item.querySelector('.ch-fb')?.addEventListener('click', async () => {
+      if (store.activeFlashback?.id === ch.id) {
+        store.activeFlashback = null;
+      } else {
+        store.activeFlashback = { id: ch.id, text: ch.text, firedCount: 0 };
+      }
+      await saveChatStore();
+      renderModalContent();
+    });
+
     item.querySelector('.ch-del').addEventListener('click', async () => {
+      if (store.activeFlashback?.id === ch.id) store.activeFlashback = null;
       store.chapters.splice(idx, 1);
       await saveChatStore();
       renderModalContent();
@@ -1437,17 +1679,35 @@ function bindEvents() {
 
   if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, refreshState);
   if (ev.GENERATION_STARTED) ctx.eventSource.on(ev.GENERATION_STARTED, updateInjection);
-  if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, updateInjection);
   if (ev.MESSAGE_DELETED) ctx.eventSource.on(ev.MESSAGE_DELETED, refreshState);
+
+  if (ev.MESSAGE_SENT) {
+    ctx.eventSource.on(ev.MESSAGE_SENT, async () => {
+      const store = getChatStore();
+      // Если бот уже отыграл заряженный флешбек (поддерживая свайпы), снимаем его на новом ходе игрока
+      if (store.activeFlashback && (store.activeFlashback.firedCount || 0) > 0) {
+        store.activeFlashback = null;
+        await saveChatStore();
+      } else {
+        updateInjection();
+      }
+    });
+  }
 
   if (ev.MESSAGE_RECEIVED) {
     ctx.eventSource.on(ev.MESSAGE_RECEIVED, async () => {
-      updateInjection();
+      const store = getChatStore();
+      if (store.activeFlashback?.text) {
+        store.activeFlashback.firedCount = (store.activeFlashback.firedCount || 0) + 1;
+        await saveChatStore();
+      } else {
+        updateInjection();
+      }
+
       const settings = getSettings();
       if (!settings.enabled || !settings.autoExtract) return;
 
       const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
-      const store = getChatStore();
       const unsummarized = chat.length - (store.lastProcessedIndex || 0);
 
       if (unsummarized >= (Number(settings.everyNMessages) || 16)) {

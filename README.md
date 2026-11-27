@@ -3,10 +3,10 @@ author: Cherry Studio
 AIGC:
   Label: "1"
   ContentProducer: CherryStudio
-  ProduceID: 01a21b76-f1d0-738b-8631-e1e49aed225f
+  ProduceID: 01a21b9b-a48c-7029-9122-58311103d8f2
   ReservedCode1: ""
   ContentPropagator: CherryStudio
-  PropagateID: 01a21b76-f1d0-738b-8631-e1e49aed225f
+  PropagateID: 01a21b9b-a48c-7029-9122-58311103d8f2
   ReservedCode2: ""
 ---
 # 🐾 Memorize: Time Photo Studio (Lu Guang & Cheng Xiaoshi)
@@ -18,7 +18,7 @@ AIGC:
 
 ---
 
-## ✨ Основные возможности (v1.3)
+## ✨ Основные возможности (v1.3.1)
 
 - **Милые безрамочные моти-чибики (SVG):** компактный плавающий маскот с круглым счётчиком в углу (режимы: Дуэт, только Лу Гуан или только Чэн Сяоши).
 - **Аккуратные вкладки категорий без визуального шума:**
