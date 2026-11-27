@@ -1,35 +1,48 @@
 const MODULE_NAME = 'memorize_time_studio';
 const PROMPT_KEY = 'memorize_time_studio_prompt';
+const FLASHBACK_PROMPT_KEY = 'memorize_time_studio_flashback';
 const LOCAL_API_KEY_STORAGE = 'memorize_studio_secret_api_key';
 const LOCAL_MODELS_CACHE = 'memorize_studio_models_cache';
 
 const MAX_RECENT_CHAPTERS = 4;
-const MAX_AUTO_FACTS = 18;
+const MAX_AUTO_FACTS = 20;
+
+const CATEGORIES = {
+  events: { icon: '⏳', label: 'События', full: '⏳ События' },
+  relations: { icon: '💞', label: 'Отношения', full: '💞 Отношения' },
+  secrets: { icon: '🗝', label: 'Секреты', full: '🗝 Секреты и детали' },
+  scene: { icon: '📍', label: 'Сцена', full: '📍 Текущая сцена' },
+};
+const CATEGORY_KEYS = Object.keys(CATEGORIES);
 
 const QUOTES = [
-  'Лу Гуан: «Таймлайн чист — важные узлы в памяти.»',
-  'Чэн Сяоши: «Хлоп! Ни одной важной детали не забудем ✨»',
+  'Лу Гуан: «Нажми на любой факт — и персонаж вспомнит этот момент.»',
+  'Чэн Сяоши: «Хлоп! Запускаем флешбек прямо в сцену 📸✨»',
   'Лу Гуан: «Старые главы сжаты в канон, контекст лёгкий.»',
-  'Чэн Сяоши: «Можешь закрепить любой факт булавочкой 📌!»',
+  'Чэн Сяоши: «Закрепляй важные секреты булавочкой 📌!»',
 ];
 
 const DEFAULT_EXTRACTION_PROMPT = `Ты — модуль долгосрочной памяти ролевой игры «Memorize».
 Проанализируй НОВЫЕ сообщения чата с учётом текущей памяти и верни обновлённый слепок строго в JSON.
 
 ПРАВИЛА ДЛЯ ДЛИННЫХ ЧАТОВ:
-1. Пиши на русском языке, сухо, точно и без художественной воды.
-2. "new_chapter": краткая выжимка ТОЛЬКО новых сообщений из блока анализа (1-3 компактных предложения: что произошло и чем закончилась сцена).
-3. "facts": единый чистый список САМЫХ ВАЖНЫХ актуальных фактов истории (максимум 16 пунктов, каждый факт — 1 короткая строка). Включай сюда ключевые изменения в отношениях, важные обещания, секреты, травмы/предметы и текущую локацию/цель. Объединяй дубликаты и смело удаляй устаревшие мелочи!
-4. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери ключевого канона. Иначе оставь "core_canon" без изменений.
+1. Пиши на русском языке, сухо, точно и без художественной воды (1 запись = 1 конкретный факт).
+2. "new_chapter": краткая выжимка ТОЛЬКО новых сообщений из блока анализа (1-3 компактных предложения).
+3. Распредели самые важные актуальные факты по 4 рубрикам (объединяй дубликаты, обновляй изменившиеся статусы и удаляй проходные мелочи, суммарно не более 18-20 пунктов):
+   - "events": ключевые произошедшие события и повороты.
+   - "relations": чувства, динамика близости/доверия, ссоры, флирт, договорённости между персонажами.
+   - "secrets": признания, тайны, личные травмы/диагнозы, обещания, важные предметы и детали.
+   - "scene": где сейчас находятся персонажи, время/обстановка и что происходит в моменте (1-3 пункта).
+4. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери канона. Иначе оставь "core_canon" как есть.
 5. Верни ТОЛЬКО валидный JSON строго по схеме:
 
 {
   "core_canon": "Сжатая основа прошлых арок сюжета (если есть)",
   "new_chapter": "Краткий итог новых проанализированных сообщений (1-3 предложения)",
-  "facts": [
-    "Краткий актуальный факт 1",
-    "Краткий актуальный факт 2"
-  ]
+  "events": ["Ключевое событие"],
+  "relations": ["Статус отношений и чувств"],
+  "secrets": ["Секрет, признание, деталь или обещание"],
+  "scene": ["Текущая локация и ситуация"]
 }`;
 
 const DEFAULT_INJECTION_TEMPLATE = `[ДОЛГОСРОЧНАЯ ПАМЯТЬ ИСТОРИИ — учитывай эти события и факты из прошлых сцен]
@@ -52,13 +65,18 @@ const DEFAULT_SETTINGS = {
   customApiUrl: 'https://openrouter.ai/api/v1',
   customApiModel: '',
   customTemperature: 0.25,
-  customMaxTokens: 1500,
+  customMaxTokens: 1600,
   extractionPrompt: DEFAULT_EXTRACTION_PROMPT,
   injectionTemplate: DEFAULT_INJECTION_TEMPLATE,
   widgetPos: null,
 };
 
 let activeView = 'facts'; // 'facts' | 'chronicle'
+let activeCategory = 'all'; // 'all' | 'events' | 'relations' | 'secrets' | 'scene'
+let searchQuery = '';
+let quickAddOpen = false;
+let quickAddCat = 'events';
+let editingFactId = null;
 let showPromptPreview = false;
 let isExtracting = false;
 let bubbleTimer = null;
@@ -138,31 +156,74 @@ function saveSettings() {
   getST()?.saveSettingsDebounced?.();
 }
 
-/* === Хранилище памяти чата (с мягкой миграцией старых версий) === */
+function inferFactCategory(text = '') {
+  const t = String(text).toLowerCase();
+  if (/признал|тайна|секрет|скрывал|диагноз|прл|шрам|травм|обеща|клятв|паспорт|прокол|ключ|подарок|письм|боится|страх|улик/i.test(t)) {
+    return 'secrets';
+  }
+  if (/отношен|чувств|влюблен|любов|флирт|поцелу|обнял|ревн|довер|ссор|разрыв|близост|нежност|переписывал|видеосвяз|скуча|касани/i.test(t)) {
+    return 'relations';
+  }
+  if (/сейчас|находятся|текущ|цель|направля|остановил|сидят в|в комнате|в общежит|обстановк/i.test(t)) {
+    return 'scene';
+  }
+  return 'events';
+}
+
+function normalizeCategory(cat, fallbackText = '') {
+  if (cat === 'clues') return 'secrets';
+  if (cat && CATEGORIES[cat]) return cat;
+  return inferFactCategory(fallbackText);
+}
+
+function highlightMatch(text = '', query = '') {
+  const safe = escapeHtml(text);
+  const q = String(query || '').trim();
+  if (!q) return safe;
+  const escapedQ = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return safe.replace(new RegExp(`(${escapedQ})`, 'gi'), '<span class="mem-hl">$1</span>');
+}
+
+/* === Хранилище памяти чата (с мягкой миграцией старых версий и авто-рубриками) === */
 function getChatStore() {
   const ctx = getST();
   if (!ctx || !ctx.chatMetadata) {
-    return { coreCanon: '', chapters: [], facts: [], lastProcessedIndex: 0, previousSnapshot: null };
+    return {
+      coreCanon: '',
+      chapters: [],
+      facts: [],
+      activeFlashback: null,
+      lastProcessedIndex: 0,
+      previousSnapshot: null,
+    };
   }
   if (!ctx.chatMetadata[MODULE_NAME]) {
     ctx.chatMetadata[MODULE_NAME] = {
       coreCanon: '',
       chapters: [],
       facts: [],
+      activeFlashback: null,
       lastProcessedIndex: 0,
       previousSnapshot: null,
     };
   }
   const store = ctx.chatMetadata[MODULE_NAME];
 
-  // Миграция из v1.0 / v1.1 (где было поле summary)
   if (typeof store.coreCanon !== 'string') {
     store.coreCanon = typeof store.summary === 'string' ? store.summary : '';
     delete store.summary;
   }
   if (!Array.isArray(store.chapters)) store.chapters = [];
   if (!Array.isArray(store.facts)) store.facts = [];
+  if (store.activeFlashback === undefined) store.activeFlashback = null;
   if (typeof store.lastProcessedIndex !== 'number') store.lastProcessedIndex = 0;
+
+  // Авто-восстановление категорий для фактов из прошлых версий
+  for (const f of store.facts) {
+    if (f && typeof f === 'object') {
+      f.category = normalizeCategory(f.category, f.text);
+    }
+  }
 
   return store;
 }
@@ -176,7 +237,7 @@ async function saveChatStore() {
   }
 }
 
-/* === Сборка текста и гарантированный инжект в промпт бота === */
+/* === Сборка текста, память и Флешбек в промпт бота === */
 function buildPromptText() {
   const settings = getSettings();
   if (!settings.enabled) return '';
@@ -196,10 +257,14 @@ function buildPromptText() {
         activeChapters.map((c) => `• [${c.range || 'Сцена'}] ${c.text.trim()}`).join('\n')
       : '';
 
-  const factsBlock =
-    activeFacts.length > 0
-      ? `Ключевые актуальные факты:\n` + activeFacts.map((f) => `- ${f.text.trim()}`).join('\n')
-      : '';
+  const grouped = [];
+  for (const catKey of CATEGORY_KEYS) {
+    const items = activeFacts.filter((f) => normalizeCategory(f.category, f.text) === catKey);
+    if (items.length > 0) {
+      grouped.push(`${CATEGORIES[catKey].full}:\n` + items.map((f) => `- ${f.text.trim()}`).join('\n'));
+    }
+  }
+  const factsBlock = grouped.join('\n\n');
 
   return (settings.injectionTemplate || DEFAULT_INJECTION_TEMPLATE)
     .replace('{{canon_block}}', canonBlock)
@@ -208,6 +273,19 @@ function buildPromptText() {
     .replace('{{summary_block}}', canonBlock)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function buildFlashbackPrompt() {
+  const settings = getSettings();
+  if (!settings.enabled) return '';
+  const store = getChatStore();
+  const fb = store.activeFlashback;
+  if (!fb || !fb.text?.trim()) return '';
+
+  return `[ФОКУС ПАМЯТИ — ФЛЕШБЕК ПЕРСОНАЖА]
+В своём СЛЕДУЮЩЕМ ответе персонаж ({{char}}) должен живо и естественно вспомнить этот момент или факт из прошлого:
+«${fb.text.trim()}»
+Органично вплети это воспоминание в текущую сцену — через внезапную ассоциацию, взгляд, деталь, внутреннюю мысль, эмоцию или прямую реплику, сохраняя характер {{char}} и не ломая ход ролевой.`;
 }
 
 function updateInjection() {
@@ -222,10 +300,49 @@ function updateInjection() {
 
   if (!settings.enabled || !text) {
     ctx.setExtensionPrompt(PROMPT_KEY, '', pos, depth, false, role);
+  } else {
+    ctx.setExtensionPrompt(PROMPT_KEY, text, pos, depth, false, role);
+  }
+
+  // Инжект активного флешбека прямо перед генерацией (Depth = 0)
+  const fbText = buildFlashbackPrompt();
+  ctx.setExtensionPrompt(FLASHBACK_PROMPT_KEY, fbText || '', 1, 0, false, 0);
+}
+
+async function triggerFlashbackNow() {
+  const store = getChatStore();
+  if (!store.activeFlashback?.text) return;
+
+  updateInjection();
+  closeModal();
+  showBubble('Чэн Сяоши: *Хлоп!* «Персонаж вспоминает этот момент...» 📸✨', 4000);
+
+  const sendArea = document.getElementById('send_textarea');
+  const sendBtn = document.getElementById('send_but');
+  if (sendArea && typeof sendArea.value === 'string' && sendArea.value.trim() && sendBtn) {
+    sendBtn.click();
     return;
   }
 
-  ctx.setExtensionPrompt(PROMPT_KEY, text, pos, depth, false, role);
+  const ctx = getST();
+  try {
+    if (typeof ctx?.executeSlashCommandsWithOptions === 'function') {
+      await ctx.executeSlashCommandsWithOptions('/trigger');
+      return;
+    }
+    if (typeof ctx?.executeSlashCommands === 'function') {
+      await ctx.executeSlashCommands('/trigger');
+      return;
+    }
+    if (typeof window.Generate === 'function') {
+      window.Generate('normal');
+      return;
+    }
+  } catch (err) {
+    console.warn('[Memorize] Direct trigger fallback:', err);
+  }
+
+  showBubble('Флешбек заряжен! Отправь сообщение — и бот вспомнит этот момент ✨', 4200);
 }
 
 /* === Свой API и авто-подгрузка скролл-списка моделей === */
@@ -418,18 +535,38 @@ function parseMemoryOutput(rawText) {
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     try {
       const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-      const combinedFacts = [];
-      if (Array.isArray(parsed.facts)) {
-        combinedFacts.push(...parsed.facts);
-      } else {
-        for (const k of ['events', 'relations', 'clues', 'scene']) {
-          if (Array.isArray(parsed[k])) combinedFacts.push(...parsed[k]);
+      const categorized = [];
+
+      for (const catKey of CATEGORY_KEYS) {
+        if (Array.isArray(parsed[catKey])) {
+          for (const item of parsed[catKey]) {
+            const t = String(item || '').trim();
+            if (t) categorized.push({ category: catKey, text: t });
+          }
         }
       }
+      if (Array.isArray(parsed.clues)) {
+        for (const item of parsed.clues) {
+          const t = String(item || '').trim();
+          if (t) categorized.push({ category: 'secrets', text: t });
+        }
+      }
+      if (categorized.length === 0 && Array.isArray(parsed.facts)) {
+        for (const item of parsed.facts) {
+          const t = String(item || '').trim();
+          if (t) categorized.push({ category: inferFactCategory(t), text: t });
+        }
+      }
+
       return {
-        core_canon: typeof parsed.core_canon === 'string' ? parsed.core_canon.trim() : typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+        core_canon:
+          typeof parsed.core_canon === 'string'
+            ? parsed.core_canon.trim()
+            : typeof parsed.summary === 'string'
+            ? parsed.summary.trim()
+            : '',
         new_chapter: typeof parsed.new_chapter === 'string' ? parsed.new_chapter.trim() : '',
-        facts: combinedFacts.map((x) => String(x || '').trim()).filter(Boolean),
+        facts: categorized,
       };
     } catch (_) {}
   }
@@ -441,7 +578,11 @@ function parseMemoryOutput(rawText) {
     .map((l) => l.replace(/^[-•*]\s+/, '').trim());
 
   if (lines.length > 0) {
-    return { core_canon: '', new_chapter: '', facts: lines };
+    return {
+      core_canon: '',
+      new_chapter: '',
+      facts: lines.map((t) => ({ category: inferFactCategory(t), text: t })),
+    };
   }
   return null;
 }
@@ -471,7 +612,6 @@ async function runExtraction(manual = false) {
     const count = Math.max(4, Number(settings.scanWindow) || 20);
     slice = validMessages.slice(-count);
   } else if (slice.length > 35) {
-    // Чтобы не перегрузить запрос на огромном старом чате за один раз — берём последние N
     slice = slice.slice(-35);
   }
 
@@ -483,7 +623,6 @@ async function runExtraction(manual = false) {
     .map(({ m }) => `${m.name || (m.is_user ? 'User' : 'Char')}: ${m.mes.trim()}`)
     .join('\n\n');
 
-  // Если глав накопилось больше лимита — отдаём старые главы на уплотнение в coreCanon
   let chaptersToCompress = [];
   let chaptersToKeep = [...store.chapters];
   if (store.chapters.length >= MAX_RECENT_CHAPTERS && !isRescanTail) {
@@ -492,11 +631,18 @@ async function runExtraction(manual = false) {
     chaptersToKeep = store.chapters.slice(cutCount);
   }
 
+  const groupedCurrent = {};
+  for (const catKey of CATEGORY_KEYS) {
+    groupedCurrent[catKey] = store.facts
+      .filter((f) => f.enabled !== false && normalizeCategory(f.category, f.text) === catKey)
+      .map((f) => f.text);
+  }
+
   const payloadContext = {
     core_canon: store.coreCanon || '',
     chapters_to_compress: chaptersToCompress.map((c) => `[${c.range}] ${c.text}`),
     recent_chapters: chaptersToKeep.map((c) => `[${c.range}] ${c.text}`),
-    current_facts: store.facts.filter((f) => f.enabled !== false).map((f) => f.text),
+    ...groupedCurrent,
   };
 
   const fullPrompt = `${settings.extractionPrompt || DEFAULT_EXTRACTION_PROMPT}
@@ -537,7 +683,6 @@ ${formattedChat}`;
       return;
     }
 
-    // Сохраняем слепок для отката Лу Гуана
     store.previousSnapshot = JSON.stringify({
       coreCanon: store.coreCanon,
       chapters: store.chapters,
@@ -565,17 +710,17 @@ ${formattedChat}`;
     }
     store.chapters = chaptersToKeep;
 
-    // Сохраняем все закреплённые пользователем факты + свежие сжатые факты
     const lockedFacts = store.facts.filter((f) => f.locked);
     const seen = new Set(lockedFacts.map((f) => f.text.trim().toLowerCase()));
     const nextFacts = [...lockedFacts];
 
-    for (const item of parsed.facts.slice(0, MAX_AUTO_FACTS)) {
-      const clean = item.trim();
+    for (const entry of parsed.facts.slice(0, MAX_AUTO_FACTS)) {
+      const clean = String(entry?.text || '').trim();
       if (!clean || seen.has(clean.toLowerCase())) continue;
       seen.add(clean.toLowerCase());
       nextFacts.push({
         id: uid('f'),
+        category: normalizeCategory(entry.category, clean),
         text: clean,
         enabled: true,
         locked: false,
