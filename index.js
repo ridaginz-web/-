@@ -1,73 +1,70 @@
 const MODULE_NAME = 'memorize_time_studio';
 const PROMPT_KEY = 'memorize_time_studio_prompt';
 const LOCAL_API_KEY_STORAGE = 'memorize_studio_secret_api_key';
+const LOCAL_MODELS_CACHE = 'memorize_studio_models_cache';
 
-const CATEGORIES = {
-  events: { label: '⏳ События', short: 'События' },
-  relations: { label: '💞 Отношения', short: 'Отношения' },
-  clues: { label: '🗝️ Детали и улики', short: 'Детали' },
-  scene: { label: '📍 Текущая сцена', short: 'Сцена' },
-};
+const MAX_RECENT_CHAPTERS = 4;
+const MAX_AUTO_FACTS = 18;
 
-const QUOTES = {
-  lg: [
-    'Лу Гуан: «Три правила: никаких домыслов — фиксируем только проверенные факты.»',
-    'Лу Гуан: «Таймлайн стабилен. Все ключевые узлы записаны в альбом.»',
-    'Лу Гуан: «Не перегружай контекст водой, оставь только суть.»',
-    'Лу Гуан: «Если нейросеть ошибётся в выжимке — я откачу снимок назад.»',
-  ],
-  cxs: [
-    'Чэн Сяоши: «Хлопнем по ладоням — и ныряем в последние сообщения! 📸»',
-    'Чэн Сяоши: «Ого, вот эту деталь точно надо сохранить на плёнку!»',
-    'Чэн Сяоши: «Лу Гуан следит за хронологией, а я — чтобы ничьи чувства не забыли!»',
-    'Чэн Сяоши: «Фотоателье „Время“ на связи! Сделать свежий снимок памяти?»',
-  ],
-};
+const QUOTES = [
+  'Лу Гуан: «Таймлайн чист — важные узлы в памяти.»',
+  'Чэн Сяоши: «Хлоп! Ни одной важной детали не забудем ✨»',
+  'Лу Гуан: «Старые главы сжаты в канон, контекст лёгкий.»',
+  'Чэн Сяоши: «Можешь закрепить любой факт булавочкой 📌!»',
+];
 
-const DEFAULT_EXTRACTION_PROMPT = `Ты — архивный модуль памяти «Memorize» (Фотоателье «Время» Лу Гуана и Чэн Сяоши).
-Проанализируй новые сообщения ролевой игры и обнови текущую базу памяти чата.
+const DEFAULT_EXTRACTION_PROMPT = `Ты — модуль долгосрочной памяти ролевой игры «Memorize».
+Проанализируй НОВЫЕ сообщения чата с учётом текущей памяти и верни обновлённый слепок строго в JSON.
 
-ПРАВИЛА:
-1. Пиши на русском языке, максимально сжато, сухо и конкретно (1 запись = 1 короткий факт без художественной воды).
-2. Объединяй новые события с уже известными фактами: обновляй изменившиеся статусы, убирай потерявшие актуальность мелочи и дубликаты.
-3. Не выдумывай того, чего не было в тексте.
-4. Верни ТОЛЬКО валидный JSON строго по схеме ниже (без пояснений вокруг JSON):
+ПРАВИЛА ДЛЯ ДЛИННЫХ ЧАТОВ:
+1. Пиши на русском языке, сухо, точно и без художественной воды.
+2. "new_chapter": краткая выжимка ТОЛЬКО новых сообщений из блока анализа (1-3 компактных предложения: что произошло и чем закончилась сцена).
+3. "facts": единый чистый список САМЫХ ВАЖНЫХ актуальных фактов истории (максимум 16 пунктов, каждый факт — 1 короткая строка). Включай сюда ключевые изменения в отношениях, важные обещания, секреты, травмы/предметы и текущую локацию/цель. Объединяй дубликаты и смело удаляй устаревшие мелочи!
+4. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери ключевого канона. Иначе оставь "core_canon" без изменений.
+5. Верни ТОЛЬКО валидный JSON строго по схеме:
 
 {
-  "summary": "Связная краткая выжимка всего сюжета на текущий момент (3-5 предложений)",
-  "events": ["Ключевое событие 1", "Ключевое событие 2"],
-  "relations": ["Статус отношений, доверия, чувств или обещаний между персонажами"],
-  "clues": ["Важные предметы, секреты, травмы, правила мира, улики"],
-  "scene": ["Где сейчас находятся персонажи, время/обстановка и текущая цель"]
+  "core_canon": "Сжатая основа прошлых арок сюжета (если есть)",
+  "new_chapter": "Краткий итог новых проанализированных сообщений (1-3 предложения)",
+  "facts": [
+    "Краткий актуальный факт 1",
+    "Краткий актуальный факт 2"
+  ]
 }`;
 
-const DEFAULT_INJECTION_TEMPLATE = `[Архив памяти «Фотоателье Время» — ключевые факты истории]
-{{summary_block}}
+const DEFAULT_INJECTION_TEMPLATE = `[ДОЛГОСРОЧНАЯ ПАМЯТЬ ИСТОРИИ — учитывай эти события и факты из прошлых сцен]
+{{canon_block}}
+{{chapters_block}}
 {{facts_block}}
-[Учитывай эти факты как достоверную память прошлых сцен, не противоречь им.]`;
+[Конец блока памяти. Не противоречь указанным фактам.]`;
 
 const DEFAULT_SETTINGS = {
   enabled: true,
   showChibi: true,
+  mascotMode: 'duo', // 'duo' | 'lg' | 'cxs'
   autoExtract: true,
-  everyNMessages: 10,
-  scanWindow: 16,
-  injectionPosition: 1,
+  everyNMessages: 16,
+  scanWindow: 20,
+  injectionPosition: 1, // 1 = IN_CHAT (@ depth)
   injectionDepth: 2,
-  injectionRole: 0,
+  injectionRole: 0, // 0 = SYSTEM
   useCustomApi: false,
   customApiUrl: 'https://openrouter.ai/api/v1',
-  customApiModel: 'deepseek/deepseek-chat',
-  customTemperature: 0.3,
-  customMaxTokens: 1400,
+  customApiModel: '',
+  customTemperature: 0.25,
+  customMaxTokens: 1500,
   extractionPrompt: DEFAULT_EXTRACTION_PROMPT,
   injectionTemplate: DEFAULT_INJECTION_TEMPLATE,
   widgetPos: null,
 };
 
-let activeTab = 'all';
+let activeView = 'facts'; // 'facts' | 'chronicle'
+let showPromptPreview = false;
 let isExtracting = false;
 let bubbleTimer = null;
+let modelFetchTimer = null;
+let modelDropdownOpen = true;
+let cachedModels = loadCachedModels();
 
 function getST() {
   return window.SillyTavern?.getContext?.() || null;
@@ -81,8 +78,13 @@ function escapeHtml(str = '') {
     .replace(/"/g, '&quot;');
 }
 
-function uid() {
-  return 'f_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+function uid(prefix = 'f') {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function estimateTokens(text = '') {
+  if (!text) return 0;
+  return Math.max(1, Math.round(text.length / 3.2));
 }
 
 function getApiKey() {
@@ -92,6 +94,23 @@ function getApiKey() {
 function setApiKey(val) {
   if (!val) localStorage.removeItem(LOCAL_API_KEY_STORAGE);
   else localStorage.setItem(LOCAL_API_KEY_STORAGE, val.trim());
+}
+
+function loadCachedModels() {
+  try {
+    const raw = localStorage.getItem(LOCAL_MODELS_CACHE);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveCachedModels(list) {
+  cachedModels = Array.isArray(list) ? list : [];
+  try {
+    localStorage.setItem(LOCAL_MODELS_CACHE, JSON.stringify(cachedModels.slice(0, 800)));
+  } catch (_) {}
 }
 
 function normalizeBaseUrl(url = '') {
@@ -119,23 +138,32 @@ function saveSettings() {
   getST()?.saveSettingsDebounced?.();
 }
 
+/* === Хранилище памяти чата (с мягкой миграцией старых версий) === */
 function getChatStore() {
   const ctx = getST();
   if (!ctx || !ctx.chatMetadata) {
-    return { summary: '', facts: [], lastProcessedIndex: 0, previousSnapshot: null };
+    return { coreCanon: '', chapters: [], facts: [], lastProcessedIndex: 0, previousSnapshot: null };
   }
   if (!ctx.chatMetadata[MODULE_NAME]) {
     ctx.chatMetadata[MODULE_NAME] = {
-      summary: '',
+      coreCanon: '',
+      chapters: [],
       facts: [],
       lastProcessedIndex: 0,
       previousSnapshot: null,
     };
   }
   const store = ctx.chatMetadata[MODULE_NAME];
+
+  // Миграция из v1.0 / v1.1 (где было поле summary)
+  if (typeof store.coreCanon !== 'string') {
+    store.coreCanon = typeof store.summary === 'string' ? store.summary : '';
+    delete store.summary;
+  }
+  if (!Array.isArray(store.chapters)) store.chapters = [];
   if (!Array.isArray(store.facts)) store.facts = [];
-  if (typeof store.summary !== 'string') store.summary = '';
   if (typeof store.lastProcessedIndex !== 'number') store.lastProcessedIndex = 0;
+
   return store;
 }
 
@@ -148,103 +176,36 @@ async function saveChatStore() {
   }
 }
 
-/* === Вызов своего OpenAI-совместимого API === */
-async function callCustomLLM(promptText) {
-  const s = getSettings();
-  const baseUrl = normalizeBaseUrl(s.customApiUrl);
-  const apiKey = getApiKey();
-  const model = (s.customApiModel || '').trim();
-
-  if (!baseUrl) throw new Error('Не указан URL своего API');
-  if (!apiKey) throw new Error('Не указан API ключ');
-  if (!model) throw new Error('Не указана модель API');
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: Number(s.customTemperature) ?? 0.3,
-      max_tokens: Number(s.customMaxTokens) || 1400,
-      messages: [
-        { role: 'system', content: 'Отвечай строго валидным JSON без лишних комментариев.' },
-        { role: 'user', content: promptText },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`HTTP ${response.status}: ${errBody.slice(0, 120)}`);
-  }
-
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content || '';
-}
-
-async function testAndLoadModels() {
-  const statusEl = document.getElementById('mem_cfg_api_status');
-  const datalist = document.getElementById('mem_models_datalist');
-  const s = getSettings();
-  const baseUrl = normalizeBaseUrl(s.customApiUrl);
-  const apiKey = getApiKey();
-
-  if (statusEl) statusEl.textContent = '⏳ Проверяем соединение...';
-
-  try {
-    if (!baseUrl || !apiKey) {
-      throw new Error('Заполните API URL и API Key');
-    }
-    const res = await fetch(`${baseUrl}/models`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const json = await res.json();
-    const list = Array.isArray(json?.data) ? json.data.map((m) => m.id).filter(Boolean) : [];
-
-    if (datalist && list.length > 0) {
-      datalist.innerHTML = list.map((id) => `<option value="${escapeHtml(id)}"></option>`).join('');
-    }
-    if (statusEl) {
-      statusEl.textContent = list.length
-        ? `✅ Ключ активен! Доступно моделей: ${list.length}`
-        : '✅ Соединение успешно (введите имя модели вручную)';
-    }
-  } catch (err) {
-    if (statusEl) statusEl.textContent = `❌ Ошибка: ${err.message}`;
-  }
-}
-
-/* === Инжект памяти в промпт === */
+/* === Сборка текста и гарантированный инжект в промпт бота === */
 function buildPromptText() {
   const settings = getSettings();
   if (!settings.enabled) return '';
 
   const store = getChatStore();
+  const canon = (store.coreCanon || '').trim();
+  const activeChapters = store.chapters.filter((c) => c.text?.trim());
   const activeFacts = store.facts.filter((f) => f.enabled !== false && f.text?.trim());
-  const hasSummary = Boolean(store.summary?.trim());
 
-  if (!hasSummary && activeFacts.length === 0) return '';
+  if (!canon && activeChapters.length === 0 && activeFacts.length === 0) return '';
 
-  const summaryBlock = hasSummary ? `Краткая сводка: ${store.summary.trim()}` : '';
+  const canonBlock = canon ? `Основа прошлых событий:\n${canon}` : '';
 
-  const grouped = [];
-  for (const [catKey, catMeta] of Object.entries(CATEGORIES)) {
-    const items = activeFacts.filter((f) => f.category === catKey);
-    if (items.length > 0) {
-      grouped.push(`${catMeta.label}:\n` + items.map((i) => `- ${i.text.trim()}`).join('\n'));
-    }
-  }
-  const factsBlock = grouped.join('\n\n');
+  const chaptersBlock =
+    activeChapters.length > 0
+      ? `Хроника последних сцен:\n` +
+        activeChapters.map((c) => `• [${c.range || 'Сцена'}] ${c.text.trim()}`).join('\n')
+      : '';
+
+  const factsBlock =
+    activeFacts.length > 0
+      ? `Ключевые актуальные факты:\n` + activeFacts.map((f) => `- ${f.text.trim()}`).join('\n')
+      : '';
 
   return (settings.injectionTemplate || DEFAULT_INJECTION_TEMPLATE)
-    .replace('{{summary_block}}', summaryBlock)
+    .replace('{{canon_block}}', canonBlock)
+    .replace('{{chapters_block}}', chaptersBlock)
     .replace('{{facts_block}}', factsBlock)
+    .replace('{{summary_block}}', canonBlock)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -255,23 +216,199 @@ function updateInjection() {
 
   const settings = getSettings();
   const text = buildPromptText();
+  const pos = Number(settings.injectionPosition) ?? 1;
+  const depth = Number(settings.injectionDepth) ?? 2;
+  const role = Number(settings.injectionRole) ?? 0;
 
   if (!settings.enabled || !text) {
-    ctx.setExtensionPrompt(PROMPT_KEY, '', settings.injectionPosition, settings.injectionDepth, false, settings.injectionRole);
+    ctx.setExtensionPrompt(PROMPT_KEY, '', pos, depth, false, role);
     return;
   }
 
-  ctx.setExtensionPrompt(
-    PROMPT_KEY,
-    text,
-    Number(settings.injectionPosition) || 1,
-    Number(settings.injectionDepth) || 2,
-    false,
-    Number(settings.injectionRole) || 0
-  );
+  ctx.setExtensionPrompt(PROMPT_KEY, text, pos, depth, false, role);
 }
 
-/* === Парсинг и генерация выжимки === */
+/* === Свой API и авто-подгрузка скролл-списка моделей === */
+async function callCustomLLM(promptText) {
+  const s = getSettings();
+  const baseUrl = normalizeBaseUrl(s.customApiUrl);
+  const apiKey = getApiKey();
+  const model = (s.customApiModel || '').trim();
+
+  if (!baseUrl) throw new Error('Укажите API Base URL');
+  if (!apiKey) throw new Error('Укажите API Key');
+  if (!model) throw new Error('Выберите модель из списка в настройках');
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: Number(s.customTemperature) ?? 0.25,
+      max_tokens: Number(s.customMaxTokens) || 1500,
+      messages: [
+        { role: 'system', content: 'Отвечай строго валидным JSON без лишнего текста.' },
+        { role: 'user', content: promptText },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => '');
+    throw new Error(`HTTP ${response.status}: ${errBody.slice(0, 100)}`);
+  }
+
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+async function fetchModelsAutomatically(silent = false) {
+  const statusEl = document.getElementById('mem_cfg_api_status');
+  const s = getSettings();
+  const baseUrl = normalizeBaseUrl(s.customApiUrl);
+  const apiKey = getApiKey();
+
+  if (!baseUrl || !apiKey) {
+    if (!silent && statusEl) statusEl.textContent = 'Введите API URL и ключ — список моделей появится сам.';
+    renderModelPickerList();
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = '⏳ Загружаем список моделей...';
+
+  try {
+    const res = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const json = await res.json();
+    const rawList = Array.isArray(json?.data)
+      ? json.data.map((m) => (typeof m === 'string' ? m : m?.id)).filter(Boolean)
+      : Array.isArray(json?.models)
+      ? json.models.map((m) => (typeof m === 'string' ? m : m?.id || m?.name)).filter(Boolean)
+      : [];
+
+    const sorted = Array.from(new Set(rawList)).sort((a, b) => a.localeCompare(b));
+    saveCachedModels(sorted);
+
+    // Если модель ещё не выбрана — сразу выбираем первую подходящую
+    if (!s.customApiModel && sorted.length > 0) {
+      s.customApiModel = sorted[0];
+      saveSettings();
+    }
+
+    modelDropdownOpen = true;
+    renderModelPickerList();
+
+    if (statusEl) {
+      statusEl.textContent = sorted.length
+        ? `✅ Подключено · Доступно моделей: ${sorted.length}`
+        : '✅ Ключ принят (список пуст — введите модель в поиск ниже)';
+    }
+  } catch (err) {
+    renderModelPickerList();
+    if (statusEl) statusEl.textContent = `❌ Не удалось загрузить модели (${err.message})`;
+  }
+}
+
+function scheduleAutoModelFetch() {
+  clearTimeout(modelFetchTimer);
+  modelFetchTimer = setTimeout(() => fetchModelsAutomatically(true), 550);
+}
+
+function renderModelPickerList() {
+  const host = document.getElementById('mem_model_picker_host');
+  if (!host) return;
+
+  const s = getSettings();
+  const searchInput = document.getElementById('mem_model_search_input');
+  const query = (searchInput?.value || '').trim().toLowerCase();
+
+  const currentLabel = s.customApiModel || 'Нажмите, чтобы выбрать модель...';
+  const filtered = query
+    ? cachedModels.filter((id) => id.toLowerCase().includes(query))
+    : cachedModels;
+
+  // Если контейнера ещё нет — создаём каркас, чтобы не сбивать фокус при вводе поиска
+  if (!document.getElementById('mem_selected_model_bar')) {
+    host.innerHTML = `
+      <div class="mem-model-picker">
+        <div id="mem_selected_model_bar" class="mem-selected-model-bar" title="Нажмите, чтобы свернуть/развернуть список">
+          <span id="mem_selected_model_text"></span>
+          <span id="mem_selected_model_arrow" style="opacity:0.75;font-size:11px;">▾</span>
+        </div>
+        <div id="mem_model_dropdown" class="mem-model-dropdown">
+          <input id="mem_model_search_input" class="text_pole" type="text" placeholder="🔍 Быстрый поиск или своё имя модели..." style="margin:0;font-size:12px;padding:5px 8px;" />
+          <div id="mem_model_scroll_list" class="mem-model-list"></div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('mem_selected_model_bar').addEventListener('click', () => {
+      modelDropdownOpen = !modelDropdownOpen;
+      renderModelPickerList();
+    });
+
+    document.getElementById('mem_model_search_input').addEventListener('input', () => {
+      renderModelPickerList();
+    });
+  }
+
+  const textEl = document.getElementById('mem_selected_model_text');
+  const arrowEl = document.getElementById('mem_selected_model_arrow');
+  const dropdownEl = document.getElementById('mem_model_dropdown');
+  const listEl = document.getElementById('mem_model_scroll_list');
+
+  if (textEl) textEl.textContent = `🤖 ${currentLabel}`;
+  if (arrowEl) arrowEl.textContent = modelDropdownOpen ? '▴' : '▾';
+  if (dropdownEl) dropdownEl.style.display = modelDropdownOpen ? 'flex' : 'none';
+  if (!listEl) return;
+
+  const rawTyped = (document.getElementById('mem_model_search_input')?.value || '').trim();
+  const optionsHtml = [];
+
+  if (rawTyped && !cachedModels.includes(rawTyped)) {
+    optionsHtml.push(`
+      <div class="mem-model-option" data-model="${escapeHtml(rawTyped)}">
+        <span>✨ Использовать: <b>${escapeHtml(rawTyped)}</b></span>
+        <span>↵</span>
+      </div>
+    `);
+  }
+
+  for (const id of filtered) {
+    const isSel = id === s.customApiModel;
+    optionsHtml.push(`
+      <div class="mem-model-option ${isSel ? 'selected' : ''}" data-model="${escapeHtml(id)}">
+        <span>${escapeHtml(id)}</span>
+        <span>${isSel ? '✓' : ''}</span>
+      </div>
+    `);
+  }
+
+  if (optionsHtml.length === 0) {
+    listEl.innerHTML = `<div style="padding:8px;font-size:11.5px;opacity:0.7;text-align:center;">Список пока пуст — введите URL и API Key выше</div>`;
+    return;
+  }
+
+  listEl.innerHTML = optionsHtml.join('');
+  listEl.querySelectorAll('.mem-model-option').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      const picked = opt.dataset.model;
+      if (!picked) return;
+      getSettings().customApiModel = picked;
+      saveSettings();
+      renderModelPickerList();
+    });
+  });
+}
+
+/* === Разбор ответа LLM и многоуровневое сжатие для больших чатов === */
 function parseMemoryOutput(rawText) {
   if (!rawText || typeof rawText !== 'string') return null;
   const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -281,34 +418,32 @@ function parseMemoryOutput(rawText) {
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     try {
       const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+      const combinedFacts = [];
+      if (Array.isArray(parsed.facts)) {
+        combinedFacts.push(...parsed.facts);
+      } else {
+        for (const k of ['events', 'relations', 'clues', 'scene']) {
+          if (Array.isArray(parsed[k])) combinedFacts.push(...parsed[k]);
+        }
+      }
       return {
-        summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
-        events: Array.isArray(parsed.events) ? parsed.events : [],
-        relations: Array.isArray(parsed.relations) ? parsed.relations : [],
-        clues: Array.isArray(parsed.clues) ? parsed.clues : [],
-        scene: Array.isArray(parsed.scene) ? parsed.scene : [],
+        core_canon: typeof parsed.core_canon === 'string' ? parsed.core_canon.trim() : typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+        new_chapter: typeof parsed.new_chapter === 'string' ? parsed.new_chapter.trim() : '',
+        facts: combinedFacts.map((x) => String(x || '').trim()).filter(Boolean),
       };
     } catch (_) {}
   }
 
-  const fallback = { summary: '', events: [], relations: [], clues: [], scene: [] };
-  let currentCat = 'events';
-  for (const rawLine of cleaned.split('\n')) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (/событи|хронолог/i.test(line)) { currentCat = 'events'; continue; }
-    if (/отношен|динам/i.test(line)) { currentCat = 'relations'; continue; }
-    if (/детал|улик|предмет/i.test(line)) { currentCat = 'clues'; continue; }
-    if (/сцен|локац/i.test(line)) { currentCat = 'scene'; continue; }
-    if (/сводк|summary/i.test(line) && !line.startsWith('-')) {
-      fallback.summary = line.replace(/^.*?:\s*/, '');
-      continue;
-    }
-    if (/^[-•*]\s+/.test(line)) {
-      fallback[currentCat].push(line.replace(/^[-•*]\s+/, '').trim());
-    }
+  const lines = cleaned
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /^[-•*]\s+/.test(l))
+    .map((l) => l.replace(/^[-•*]\s+/, '').trim());
+
+  if (lines.length > 0) {
+    return { core_canon: '', new_chapter: '', facts: lines };
   }
-  return fallback;
+  return null;
 }
 
 async function runExtraction(manual = false) {
@@ -321,7 +456,7 @@ async function runExtraction(manual = false) {
     .filter(({ m }) => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim());
 
   if (validMessages.length === 0) {
-    if (manual) showBubble('Лу Гуан: «В чате пока нет сообщений для снимка.»');
+    if (manual) showBubble('Пока нет сообщений для памяти ✨');
     return;
   }
 
@@ -329,44 +464,62 @@ async function runExtraction(manual = false) {
   const store = getChatStore();
 
   let slice = validMessages.filter(({ idx }) => idx >= store.lastProcessedIndex);
-  if (slice.length === 0 || manual) {
-    const count = Math.max(4, Number(settings.scanWindow) || 16);
+  let isRescanTail = false;
+  if (slice.length === 0) {
+    if (!manual) return;
+    isRescanTail = true;
+    const count = Math.max(4, Number(settings.scanWindow) || 20);
     slice = validMessages.slice(-count);
+  } else if (slice.length > 35) {
+    // Чтобы не перегрузить запрос на огромном старом чате за один раз — берём последние N
+    slice = slice.slice(-35);
   }
+
+  const fromMsg = slice[0].idx + 1;
+  const toMsg = slice[slice.length - 1].idx + 1;
+  const rangeLabel = `#${fromMsg}–${toMsg}`;
 
   const formattedChat = slice
     .map(({ m }) => `${m.name || (m.is_user ? 'User' : 'Char')}: ${m.mes.trim()}`)
     .join('\n\n');
 
-  const existingMemory = {
-    summary: store.summary || '',
-    events: store.facts.filter((f) => f.category === 'events' && f.enabled !== false).map((f) => f.text),
-    relations: store.facts.filter((f) => f.category === 'relations' && f.enabled !== false).map((f) => f.text),
-    clues: store.facts.filter((f) => f.category === 'clues' && f.enabled !== false).map((f) => f.text),
-    scene: store.facts.filter((f) => f.category === 'scene' && f.enabled !== false).map((f) => f.text),
+  // Если глав накопилось больше лимита — отдаём старые главы на уплотнение в coreCanon
+  let chaptersToCompress = [];
+  let chaptersToKeep = [...store.chapters];
+  if (store.chapters.length >= MAX_RECENT_CHAPTERS && !isRescanTail) {
+    const cutCount = store.chapters.length - (MAX_RECENT_CHAPTERS - 2);
+    chaptersToCompress = store.chapters.slice(0, cutCount);
+    chaptersToKeep = store.chapters.slice(cutCount);
+  }
+
+  const payloadContext = {
+    core_canon: store.coreCanon || '',
+    chapters_to_compress: chaptersToCompress.map((c) => `[${c.range}] ${c.text}`),
+    recent_chapters: chaptersToKeep.map((c) => `[${c.range}] ${c.text}`),
+    current_facts: store.facts.filter((f) => f.enabled !== false).map((f) => f.text),
   };
 
-  const fullQuietPrompt = `${settings.extractionPrompt || DEFAULT_EXTRACTION_PROMPT}
+  const fullPrompt = `${settings.extractionPrompt || DEFAULT_EXTRACTION_PROMPT}
 
 ТЕКУЩАЯ ПАМЯТЬ ЧАТА:
-${JSON.stringify(existingMemory, null, 2)}
+${JSON.stringify(payloadContext, null, 2)}
 
-НОВЫЕ СООБЩЕНИЯ ДЛЯ АНАЛИЗА:
+НОВЫЕ СООБЩЕНИЯ ЧАТА (${rangeLabel}):
 ${formattedChat}`;
 
   try {
     isExtracting = true;
     setSyncingState(true);
-    showBubble('Чэн Сяоши и Лу Гуан: *Хлопок!* «Прыгаем в снимок памяти...» ✨');
+    showBubble('Синхронизируем память... ✨', 6000);
 
     let rawResult = '';
     if (settings.useCustomApi) {
-      rawResult = await callCustomLLM(fullQuietPrompt);
+      rawResult = await callCustomLLM(fullPrompt);
     } else {
       if (typeof ctx.generateRaw === 'function') {
         try {
           rawResult = await ctx.generateRaw({
-            prompt: fullQuietPrompt,
+            prompt: fullPrompt,
             systemPrompt: 'Отвечай строго валидным JSON без лишнего текста.',
           });
         } catch (_) {
@@ -374,53 +527,69 @@ ${formattedChat}`;
         }
       }
       if (!rawResult && typeof ctx.generateQuietPrompt === 'function') {
-        rawResult = await ctx.generateQuietPrompt({ quietPrompt: fullQuietPrompt });
+        rawResult = await ctx.generateQuietPrompt({ quietPrompt: fullPrompt });
       }
     }
 
     const parsed = parseMemoryOutput(rawResult);
     if (!parsed) {
-      showBubble('Лу Гуан: «Не удалось разобрать ответ модели. Попробуй ещё раз.»');
+      showBubble('Не удалось разобрать JSON ответа 😿');
       return;
     }
 
+    // Сохраняем слепок для отката Лу Гуана
     store.previousSnapshot = JSON.stringify({
-      summary: store.summary,
+      coreCanon: store.coreCanon,
+      chapters: store.chapters,
       facts: store.facts,
       lastProcessedIndex: store.lastProcessedIndex,
     });
 
-    if (parsed.summary) store.summary = parsed.summary;
+    if (parsed.core_canon) {
+      store.coreCanon = parsed.core_canon;
+    } else if (chaptersToCompress.length > 0) {
+      const joinedOld = chaptersToCompress.map((c) => c.text).join(' ');
+      store.coreCanon = [store.coreCanon, joinedOld].filter(Boolean).join(' ');
+    }
 
-    const lockedFacts = store.facts.filter((f) => f.locked);
-    const lockedSet = new Set(lockedFacts.map((f) => f.text.trim().toLowerCase()));
-    const nextFacts = [...lockedFacts];
-
-    for (const catKey of Object.keys(CATEGORIES)) {
-      const incoming = Array.isArray(parsed[catKey]) ? parsed[catKey] : [];
-      for (const item of incoming) {
-        const cleanText = String(item || '').trim();
-        if (!cleanText) continue;
-        if (lockedSet.has(cleanText.toLowerCase())) continue;
-        lockedSet.add(cleanText.toLowerCase());
-        nextFacts.push({
-          id: uid(),
-          category: catKey,
-          text: cleanText,
-          enabled: true,
-          locked: false,
+    if (parsed.new_chapter) {
+      if (isRescanTail && chaptersToKeep.length > 0 && chaptersToKeep[chaptersToKeep.length - 1].range === rangeLabel) {
+        chaptersToKeep[chaptersToKeep.length - 1].text = parsed.new_chapter;
+      } else {
+        chaptersToKeep.push({
+          id: uid('ch'),
+          range: rangeLabel,
+          text: parsed.new_chapter,
         });
       }
+    }
+    store.chapters = chaptersToKeep;
+
+    // Сохраняем все закреплённые пользователем факты + свежие сжатые факты
+    const lockedFacts = store.facts.filter((f) => f.locked);
+    const seen = new Set(lockedFacts.map((f) => f.text.trim().toLowerCase()));
+    const nextFacts = [...lockedFacts];
+
+    for (const item of parsed.facts.slice(0, MAX_AUTO_FACTS)) {
+      const clean = item.trim();
+      if (!clean || seen.has(clean.toLowerCase())) continue;
+      seen.add(clean.toLowerCase());
+      nextFacts.push({
+        id: uid('f'),
+        text: clean,
+        enabled: true,
+        locked: false,
+      });
     }
 
     store.facts = nextFacts;
     store.lastProcessedIndex = chat.length;
     await saveChatStore();
     renderModalContent();
-    showBubble(`Чэн Сяоши: «Снимок проявлен! Фактов в альбоме: ${store.facts.length} 📸»`);
+    showBubble(`Память обновлена (${store.facts.length}) ✨`, 3000);
   } catch (err) {
     console.error('[Memorize] Extraction error:', err);
-    showBubble(`Лу Гуан: «Ошибка API: ${err.message || 'проверь настройки ключа'}»`);
+    showBubble(`Ошибка API: ${err.message || 'проверьте настройки'}`);
   } finally {
     isExtracting = false;
     setSyncingState(false);
@@ -430,66 +599,135 @@ ${formattedChat}`;
 async function rollbackSnapshot() {
   const store = getChatStore();
   if (!store.previousSnapshot) {
-    showBubble('Лу Гуан: «Точка возврата пуста — откатывать пока нечего.»');
+    showBubble('Откатывать пока нечего ⏳');
     return;
   }
   try {
     const prev = JSON.parse(store.previousSnapshot);
-    store.summary = prev.summary || '';
+    store.coreCanon = prev.coreCanon ?? prev.summary ?? '';
+    store.chapters = Array.isArray(prev.chapters) ? prev.chapters : [];
     store.facts = Array.isArray(prev.facts) ? prev.facts : [];
     store.lastProcessedIndex = prev.lastProcessedIndex || 0;
     store.previousSnapshot = null;
     await saveChatStore();
     renderModalContent();
-    showBubble('Лу Гуан: «Время отмотано назад. Предыдущий снимок восстановлен ⏳»');
+    showBubble('Лу Гуан вернул прошлый слепок ⏳');
   } catch (e) {
     console.error('[Memorize] Rollback error:', e);
   }
 }
 
-/* === Чиби SVG === */
-function getLuGuangSVG() {
+/* === Кавайные Моти-Чибики (в формате пухлого стикера-фамильяра) === */
+function getLuGuangMochiGroup() {
   return `
-  <svg viewBox="0 0 64 74" xmlns="http://www.w3.org/2000/svg">
-    <ellipse cx="32" cy="69" rx="16" ry="4" fill="rgba(0,0,0,0.35)"/>
-    <path d="M18 46 Q32 42 46 46 L49 66 Q32 69 15 66 Z" fill="#dce6f7" stroke="#2c3a57" stroke-width="2"/>
-    <path d="M27 45 L32 56 L37 45 Z" fill="#23304c"/>
-    <circle cx="38" cy="57" r="4.5" fill="#f4c96b" stroke="#7a5a1e" stroke-width="1.3"/>
-    <circle cx="32" cy="29" r="16" fill="#ffe9dc" stroke="#2c3a57" stroke-width="2"/>
-    <path d="M14 28 Q14 10 32 10 Q50 10 50 28 Q47 19 42 22 L38 16 L33 23 L27 16 L22 23 Q17 19 14 28 Z" fill="#eef3ff" stroke="#5b6f99" stroke-width="1.8"/>
-    <ellipse class="mem-eye-glow" cx="25.5" cy="31" rx="2.6" ry="3" fill="#5e7bb8"/>
-    <ellipse class="mem-eye-glow" cx="38.5" cy="31" rx="2.6" ry="3" fill="#5e7bb8"/>
-    <circle cx="24.8" cy="29.8" r="0.9" fill="#fff"/>
-    <circle cx="37.8" cy="29.8" r="0.9" fill="#fff"/>
-    <path d="M22 26.5 L28.5 27.2" stroke="#5b6f99" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M42 26.5 L35.5 27.2" stroke="#5b6f99" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M29.5 38 Q32 39 34.5 38" stroke="#8a5a50" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-  </svg>`;
+    <!-- Пушистые кошачьи ушки Лу Гуана -->
+    <path d="M18 27 C14 13, 23 9, 32 18 Z" fill="#f3f7ff" stroke="#241e32" stroke-width="2.7" stroke-linejoin="round"/>
+    <path d="M20.5 23.5 C18.8 16, 23.5 14, 28.5 19 Z" fill="#ffb6cd"/>
+    <path d="M62 27 C66 13, 57 9, 48 18 Z" fill="#f3f7ff" stroke="#241e32" stroke-width="2.7" stroke-linejoin="round"/>
+    <path d="M59.5 23.5 C61.2 16, 56.5 14, 51.5 19 Z" fill="#ffb6cd"/>
+
+    <!-- Маленькие круглые ножки -->
+    <ellipse cx="32" cy="70" rx="5.2" ry="3.5" fill="#d7e4ff" stroke="#241e32" stroke-width="2.5"/>
+    <ellipse cx="48" cy="70" rx="5.2" ry="3.5" fill="#d7e4ff" stroke="#241e32" stroke-width="2.5"/>
+
+    <!-- Пухлое моти-тельце с полосатым животиком и часами -->
+    <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#eef4ff" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
+    <ellipse cx="40" cy="59.5" rx="9.5" ry="7.8" fill="#c7dcff"/>
+    <circle cx="40" cy="59.5" r="4.2" fill="#ffe184" stroke="#241e32" stroke-width="2"/>
+    <path d="M40 57.5 V59.6 L41.5 60.6" stroke="#5c4018" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+
+    <!-- Круглые лапки -->
+    <ellipse cx="26" cy="57.5" rx="4.5" ry="3.4" transform="rotate(20 26 57.5)" fill="#fff7f4" stroke="#241e32" stroke-width="2.4"/>
+    <ellipse cx="54" cy="57.5" rx="4.5" ry="3.4" transform="rotate(-20 54 57.5)" fill="#fff7f4" stroke="#241e32" stroke-width="2.4"/>
+
+    <!-- Широкая пухлая моти-щёчкастая голова -->
+    <ellipse cx="40" cy="36.5" rx="24" ry="19" fill="#fff4ee" stroke="#241e32" stroke-width="2.7"/>
+
+    <!-- Мягкая округлая серебристая чёлка-облачко -->
+    <path d="M16 35 C15.5 19, 26.5 15.5, 40 15.5 C53.5 15.5, 64.5 19, 64 35 C61 29.5, 57 28.5, 53.5 32 C49.5 26, 44 26, 40 32 C36 26, 30.5 26, 26.5 32 C23 28.5, 19 29.5, 16 35 Z" fill="#f0f5ff" stroke="#241e32" stroke-width="2.5" stroke-linejoin="round"/>
+
+    <!-- Розовые румяные щёчки -->
+    <ellipse cx="23.2" cy="44" rx="4.8" ry="2.7" fill="#ff9ebb" opacity="0.82"/>
+    <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff9ebb" opacity="0.82"/>
+
+    <!-- Большие блестящие глаза-бусинки -->
+    <ellipse cx="29.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
+    <ellipse cx="50.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
+    <ellipse class="mem-eye-glow" cx="29.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
+    <ellipse class="mem-eye-glow" cx="50.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
+    <circle cx="27.8" cy="38" r="1.8" fill="#ffffff"/>
+    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    <circle cx="48.8" cy="38" r="1.8" fill="#ffffff"/>
+    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+
+    <!-- Милый кошачий ротик ω -->
+    <path d="M37 44 Q38.5 45.8 40 44.1 Q41.5 45.8 43 44" fill="none" stroke="#241e32" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+  `;
 }
 
-function getChengXiaoshiSVG() {
+function getChengXiaoshiMochiGroup() {
   return `
-  <svg viewBox="0 0 64 74" xmlns="http://www.w3.org/2000/svg">
-    <ellipse cx="32" cy="69" rx="16" ry="4" fill="rgba(0,0,0,0.35)"/>
-    <path d="M17 46 Q32 42 47 46 L50 66 Q32 69 14 66 Z" fill="#2a3142" stroke="#181d29" stroke-width="2"/>
-    <path d="M24 45 Q32 50 40 45 L38 66 L26 66 Z" fill="#f2f5fc"/>
-    <rect x="25" y="53" width="14" height="9" rx="2.2" fill="#3a4359" stroke="#f4c96b" stroke-width="1.3"/>
-    <circle cx="32" cy="57.5" r="2.7" fill="#7eb6ff"/>
-    <circle cx="32" cy="29" r="16" fill="#ffe6d4" stroke="#2b2420" stroke-width="2"/>
-    <path d="M31 10 Q35 3 40 7 Q36 9 36 11" fill="none" stroke="#3b2a26" stroke-width="2.4" stroke-linecap="round"/>
-    <path d="M13 29 Q13 10 32 10 Q51 10 51 29 L46 21 L41 25 L35 17 L29 25 L23 18 L18 25 Z" fill="#46312c" stroke="#241815" stroke-width="1.8"/>
-    <ellipse class="mem-eye-glow" cx="25.5" cy="31" rx="2.8" ry="3.4" fill="#b86b2b"/>
-    <ellipse class="mem-eye-glow" cx="38.5" cy="31" rx="2.8" ry="3.4" fill="#b86b2b"/>
-    <circle cx="24.7" cy="29.6" r="1.1" fill="#fff"/>
-    <circle cx="37.7" cy="29.6" r="1.1" fill="#fff"/>
-    <circle cx="20.5" cy="35" r="2.4" fill="rgba(255,130,130,0.35)"/>
-    <circle cx="43.5" cy="35" r="2.4" fill="rgba(255,130,130,0.35)"/>
-    <path d="M28 37.2 Q32 41.2 36 37.2" stroke="#8a4b3c" stroke-width="1.8" fill="none" stroke-linecap="round"/>
-  </svg>`;
+    <!-- Мягкие висячие щенячьи ушки Чэн Сяоши -->
+    <path d="M21 22 C10.5 20, 8.5 32, 15.5 36.5 C18.8 38, 21 31, 22 25 Z" fill="#634239" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M59 22 C69.5 20, 71.5 32, 64.5 36.5 C61.2 38, 59 31, 58 25 Z" fill="#634239" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
+
+    <!-- Маленькие ножки -->
+    <ellipse cx="32" cy="70" rx="5.2" ry="3.5" fill="#3d3852" stroke="#241e32" stroke-width="2.5"/>
+    <ellipse cx="48" cy="70" rx="5.2" ry="3.5" fill="#3d3852" stroke="#241e32" stroke-width="2.5"/>
+
+    <!-- Пухлое моти-тельце в худи с мини-камерой -->
+    <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#3b374f" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
+    <ellipse cx="40" cy="59.5" rx="9.2" ry="7.6" fill="#fff6f0"/>
+    <rect x="34.2" y="55.2" width="11.6" height="8.2" rx="2.6" fill="#526080" stroke="#241e32" stroke-width="1.9"/>
+    <circle cx="40" cy="59.3" r="2.3" fill="#9bc2ff"/>
+
+    <!-- Круглые лапки -->
+    <ellipse cx="26" cy="57.5" rx="4.5" ry="3.4" transform="rotate(20 26 57.5)" fill="#fff2e8" stroke="#241e32" stroke-width="2.4"/>
+    <ellipse cx="54" cy="57.5" rx="4.5" ry="3.4" transform="rotate(-20 54 57.5)" fill="#fff2e8" stroke="#241e32" stroke-width="2.4"/>
+
+    <!-- Широкая пухлая моти-голова -->
+    <ellipse cx="40" cy="36.5" rx="24" ry="19" fill="#fff1e6" stroke="#241e32" stroke-width="2.7"/>
+
+    <!-- Задорный хохолок-завиток и каштановая мягкая чёлка -->
+    <path d="M39 15.5 C37 8.5, 45.5 7.5, 44.5 14" fill="none" stroke="#241e32" stroke-width="2.8" stroke-linecap="round"/>
+    <path d="M16 35 C15.5 19, 26.5 15.5, 40 15.5 C53.5 15.5, 64.5 19, 64 35 C61 29, 56.5 28.5, 53 32 C49.5 26, 44 26.5, 40 32.2 C36 26.5, 30.5 26, 27 32 C23.5 28.5, 19 29, 16 35 Z" fill="#5e3e36" stroke="#241e32" stroke-width="2.5" stroke-linejoin="round"/>
+
+    <!-- Румяные розовые щёчки -->
+    <ellipse cx="23.2" cy="44" rx="4.8" ry="2.7" fill="#ff94b2" opacity="0.86"/>
+    <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff94b2" opacity="0.86"/>
+
+    <!-- Сияющие тёпло-янтарные глазки -->
+    <ellipse cx="29.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
+    <ellipse cx="50.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
+    <ellipse class="mem-eye-glow" cx="29.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
+    <ellipse class="mem-eye-glow" cx="50.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
+    <circle cx="27.7" cy="37.9" r="1.85" fill="#ffffff"/>
+    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    <circle cx="48.7" cy="37.9" r="1.85" fill="#ffffff"/>
+    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+
+    <!-- Радостная улыбка -->
+    <path d="M36.8 43.2 Q40 47.2 43.2 43.2 Z" fill="#ff8da6" stroke="#241e32" stroke-width="2" stroke-linejoin="round"/>
+  `;
 }
 
-/* === Виджет и Модальное окно === */
-function showBubble(text, ms = 4200) {
+function getMascotSVG(mode = 'duo') {
+  if (mode === 'lg') {
+    return `<svg viewBox="8 6 64 69" xmlns="http://www.w3.org/2000/svg">${getLuGuangMochiGroup()}</svg>`;
+  }
+  if (mode === 'cxs') {
+    return `<svg viewBox="8 6 64 69" xmlns="http://www.w3.org/2000/svg">${getChengXiaoshiMochiGroup()}</svg>`;
+  }
+  return `
+    <svg viewBox="6 5 120 71" xmlns="http://www.w3.org/2000/svg">
+      <g transform="translate(0, 1) rotate(-3 40 45)">${getLuGuangMochiGroup()}</g>
+      <g transform="translate(46, 1) rotate(3 40 45)">${getChengXiaoshiMochiGroup()}</g>
+    </svg>
+  `;
+}
+
+/* === Плавающий виджет === */
+function showBubble(text, ms = 3400) {
   const bubble = document.getElementById('memorize-speech');
   if (!bubble) return;
   bubble.textContent = text;
@@ -500,6 +738,16 @@ function showBubble(text, ms = 4200) {
 
 function setSyncingState(syncing) {
   document.getElementById('memorize-chibi-widget')?.classList.toggle('mem-syncing', Boolean(syncing));
+}
+
+function renderWidgetMascot() {
+  const wrap = document.getElementById('memorize-mascot-wrap');
+  if (!wrap) return;
+  const s = getSettings();
+  const mode = s.mascotMode || 'duo';
+  wrap.className = `mem-mascot-wrap ${mode === 'duo' ? 'mode-duo' : 'mode-single'}`;
+  wrap.innerHTML = `${getMascotSVG(mode)}<span id="memorize-fact-count" class="mem-corner-badge">0</span>`;
+  updateWidgetBadge();
 }
 
 function updateWidgetBadge() {
@@ -532,21 +780,12 @@ function createWidget() {
 
   widget.innerHTML = `
     <div id="memorize-speech" class="mem-speech-bubble"></div>
-    <div id="memorize-stage" class="mem-chibi-stage" title="Перетащи виджет или нажми на персонажей">
-      <div class="mem-chibi-char lg" data-char="lg" title="Лу Гуан">${getLuGuangSVG()}</div>
-      <div class="mem-chibi-char cxs" data-char="cxs" title="Чэн Сяоши">${getChengXiaoshiSVG()}</div>
-    </div>
-    <div class="mem-widget-bar">
-      <button id="mem-open-book-btn" class="mem-pill-btn" type="button">
-        📸 Альбом <span id="memorize-fact-count" class="mem-badge-count">0</span>
-      </button>
-      <button id="mem-quick-snap-btn" class="mem-pill-btn" type="button" title="Сделать снимок памяти">👏</button>
-    </div>
+    <div id="memorize-mascot-wrap" class="mem-mascot-wrap mode-duo" title="Нажми — открыть память чата, перетащи — сдвинуть"></div>
   `;
 
   document.body.appendChild(widget);
+  renderWidgetMascot();
 
-  const stage = document.getElementById('memorize-stage');
   let dragging = false;
   let moved = false;
   let startX = 0;
@@ -554,7 +793,7 @@ function createWidget() {
   let origLeft = 0;
   let origTop = 0;
 
-  stage.addEventListener('pointerdown', (e) => {
+  widget.addEventListener('pointerdown', (e) => {
     dragging = true;
     moved = false;
     const rect = widget.getBoundingClientRect();
@@ -562,10 +801,10 @@ function createWidget() {
     startY = e.clientY;
     origLeft = rect.left;
     origTop = rect.top;
-    stage.setPointerCapture?.(e.pointerId);
+    widget.setPointerCapture?.(e.pointerId);
   });
 
-  stage.addEventListener('pointermove', (e) => {
+  widget.addEventListener('pointermove', (e) => {
     if (!dragging) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
@@ -580,10 +819,10 @@ function createWidget() {
     widget.style.bottom = 'auto';
   });
 
-  stage.addEventListener('pointerup', (e) => {
+  widget.addEventListener('pointerup', (e) => {
     if (!dragging) return;
     dragging = false;
-    stage.releasePointerCapture?.(e.pointerId);
+    widget.releasePointerCapture?.(e.pointerId);
 
     if (moved) {
       const rect = widget.getBoundingClientRect();
@@ -592,18 +831,21 @@ function createWidget() {
       return;
     }
 
-    const charEl = e.target.closest('.mem-chibi-char');
-    if (charEl) {
-      const who = charEl.dataset.char === 'lg' ? 'lg' : 'cxs';
-      const list = QUOTES[who];
-      showBubble(list[Math.floor(Math.random() * list.length)]);
+    const wrap = document.getElementById('memorize-mascot-wrap');
+    if (wrap) {
+      wrap.classList.remove('mem-jelly');
+      void wrap.offsetWidth;
+      wrap.classList.add('mem-jelly');
     }
+    openModal();
   });
+}
 
-  document.getElementById('mem-open-book-btn').addEventListener('click', openModal);
-  document.getElementById('mem-quick-snap-btn').addEventListener('click', () => runExtraction(true));
-
-  updateWidgetBadge();
+/* === Минималистичная Панель Памяти === */
+function autoResizeTextarea(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(20, el.scrollHeight)}px`;
 }
 
 function createModal() {
@@ -612,41 +854,31 @@ function createModal() {
   const backdrop = document.createElement('div');
   backdrop.id = 'memorize-modal-backdrop';
   backdrop.innerHTML = `
-    <div class="mem-modal" role="dialog" aria-modal="true">
-      <div class="mem-modal-header">
-        <div class="mem-modal-title">
-          <strong>📸 Фотоателье «Время» — Память фактов</strong>
-          <span>Лу Гуан и Чэн Сяоши хранят выжимку текущего чата</span>
+    <div class="mem-sheet" role="dialog" aria-modal="true">
+      <div class="mem-sheet-header">
+        <div class="mem-header-left">
+          <div id="mem-mini-mascot-tap" style="width:34px;height:34px;cursor:pointer;flex-shrink:0;" title="Погладить маскота">${getMascotSVG('lg')}</div>
+          <div class="mem-header-title">
+            <strong>Память чата</strong>
+            <div id="mem-prompt-status" class="mem-prompt-pill"></div>
+          </div>
         </div>
-        <button id="mem-close-modal" class="mem-btn" type="button">✕</button>
+        <div id="mem-close-modal" class="mem-close-x" title="Закрыть">✕</div>
       </div>
 
-      <div class="mem-toolbar">
-        <button id="mem-run-extract" class="mem-btn primary" type="button">👏 Сделать снимок памяти</button>
-        <button id="mem-rollback-btn" class="mem-btn" type="button">⏪ Откат Лу Гуана</button>
-        <button id="mem-clear-all" class="mem-btn" type="button">🗑️ Очистить чат</button>
+      <div class="mem-nav-row">
+        <div class="mem-segmented">
+          <div id="mem-seg-facts" class="mem-seg-item active">Факты</div>
+          <div id="mem-seg-chronicle" class="mem-seg-item">Хроника</div>
+        </div>
+        <div class="mem-actions-inline">
+          <div id="mem-run-extract" class="mem-chip accent" title="Сжать новые сообщения сейчас">✨ Обновить</div>
+          <div id="mem-rollback-btn" class="mem-chip" title="Откат Лу Гуана к прошлому снимку">⏪</div>
+          <div id="mem-clear-all" class="mem-chip" title="Очистить память этого чата">🗑</div>
+        </div>
       </div>
 
-      <div id="mem-tabs-bar" class="mem-tabs"></div>
-
-      <div class="mem-modal-body">
-        <div class="mem-summary-box">
-          <label for="mem-summary-input">📖 Сжатая сводка сюжета (Summarize)</label>
-          <textarea id="mem-summary-input" placeholder="Здесь появится краткая выжимка происходящего в чате..."></textarea>
-        </div>
-
-        <div class="mem-add-row">
-          <select id="mem-new-cat">
-            ${Object.entries(CATEGORIES)
-              .map(([k, v]) => `<option value="${k}">${v.label}</option>`)
-              .join('')}
-          </select>
-          <input id="mem-new-text" type="text" placeholder="Добавить новый факт вручную..." />
-          <button id="mem-add-fact-btn" class="mem-btn" type="button">＋ Добавить</button>
-        </div>
-
-        <div id="mem-facts-container" class="mem-facts-grid"></div>
-      </div>
+      <div id="mem-sheet-body" class="mem-sheet-body"></div>
     </div>
   `;
 
@@ -655,49 +887,38 @@ function createModal() {
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeModal();
   });
+
   document.getElementById('mem-close-modal').addEventListener('click', closeModal);
   document.getElementById('mem-run-extract').addEventListener('click', () => runExtraction(true));
   document.getElementById('mem-rollback-btn').addEventListener('click', rollbackSnapshot);
 
+  document.getElementById('mem-mini-mascot-tap').addEventListener('click', () => {
+    const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+    const status = document.getElementById('mem-prompt-status');
+    if (status) status.textContent = q;
+  });
+
   document.getElementById('mem-clear-all').addEventListener('click', async () => {
-    if (!confirm('Очистить все карточки фактов и сводку для текущего чата?')) return;
+    if (!confirm('Очистить память только для текущего чата?')) return;
     const store = getChatStore();
     store.previousSnapshot = JSON.stringify(store);
-    store.summary = '';
+    store.coreCanon = '';
+    store.chapters = [];
     store.facts = [];
     store.lastProcessedIndex = 0;
     await saveChatStore();
     renderModalContent();
   });
 
-  document.getElementById('mem-summary-input').addEventListener('change', async (e) => {
-    getChatStore().summary = e.target.value;
-    await saveChatStore();
+  document.getElementById('mem-seg-facts').addEventListener('click', () => {
+    activeView = 'facts';
+    renderModalContent();
   });
 
-  document.getElementById('mem-add-fact-btn').addEventListener('click', addManualFact);
-  document.getElementById('mem-new-text').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') addManualFact();
+  document.getElementById('mem-seg-chronicle').addEventListener('click', () => {
+    activeView = 'chronicle';
+    renderModalContent();
   });
-}
-
-async function addManualFact() {
-  const input = document.getElementById('mem-new-text');
-  const catSelect = document.getElementById('mem-new-cat');
-  const text = input?.value?.trim();
-  if (!text) return;
-
-  const store = getChatStore();
-  store.facts.unshift({
-    id: uid(),
-    category: catSelect.value || 'events',
-    text,
-    enabled: true,
-    locked: true,
-  });
-  input.value = '';
-  await saveChatStore();
-  renderModalContent();
 }
 
 function openModal() {
@@ -715,89 +936,188 @@ function renderModalContent() {
   if (!backdrop) return;
 
   const store = getChatStore();
-  const summaryEl = document.getElementById('mem-summary-input');
-  if (summaryEl) summaryEl.value = store.summary || '';
+  const settings = getSettings();
+  const promptText = buildPromptText();
+  const tokens = estimateTokens(promptText);
 
-  const tabsBar = document.getElementById('mem-tabs-bar');
-  const tabs = [
-    { key: 'all', label: `Все (${store.facts.length})` },
-    ...Object.entries(CATEGORIES).map(([k, v]) => ({
-      key: k,
-      label: `${v.short} (${store.facts.filter((f) => f.category === k).length})`,
-    })),
-  ];
+  // Статус инжекта в промпт
+  const statusEl = document.getElementById('mem-prompt-status');
+  if (statusEl) {
+    if (settings.enabled && promptText) {
+      statusEl.innerHTML = `<span class="mem-dot"></span><span>В промпте бота · ~${tokens} ток. (глубина ${settings.injectionDepth})</span>`;
+    } else if (!settings.enabled) {
+      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Память выключена в настройках</span>`;
+    } else {
+      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Пока пусто — нажмите «✨ Обновить»</span>`;
+    }
+  }
 
-  tabsBar.innerHTML = tabs
-    .map(
-      (t) =>
-        `<button type="button" class="mem-tab ${activeTab === t.key ? 'active' : ''}" data-tab="${t.key}">${escapeHtml(t.label)}</button>`
-    )
-    .join('');
+  const segFacts = document.getElementById('mem-seg-facts');
+  const segChron = document.getElementById('mem-seg-chronicle');
+  if (segFacts) {
+    segFacts.textContent = `Факты (${store.facts.length})`;
+    segFacts.classList.toggle('active', activeView === 'facts');
+  }
+  if (segChron) {
+    segChron.textContent = `Хроника (${store.chapters.length + (store.coreCanon?.trim() ? 1 : 0)})`;
+    segChron.classList.toggle('active', activeView === 'chronicle');
+  }
 
-  tabsBar.querySelectorAll('.mem-tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activeTab = btn.dataset.tab;
+  const body = document.getElementById('mem-sheet-body');
+  if (!body) return;
+
+  if (activeView === 'facts') {
+    const rowsHtml =
+      store.facts.length === 0
+        ? `<div class="mem-empty-hint">Здесь будут ключевые факты чата без лишней воды.<br>Нажмите <b>«✨ Обновить»</b> вверху или запишите факт сами.</div>`
+        : `<div class="mem-clean-list">` +
+          store.facts
+            .map(
+              (f) => `
+              <div class="mem-fact-row ${f.locked ? 'locked' : ''} ${f.enabled === false ? 'muted' : ''}" data-id="${escapeHtml(f.id)}">
+                <span class="mem-pin-dot" title="Закрепить факт от перезаписи">${f.locked ? '📌' : '•'}</span>
+                <textarea rows="1" class="mem-fact-edit">${escapeHtml(f.text)}</textarea>
+                <div class="mem-row-tools">
+                  <span class="mem-mini-act act-mute" title="Включить/выключить в промпте">${f.enabled === false ? '🙈' : '👁'}</span>
+                  <span class="mem-mini-act act-del" title="Удалить">✕</span>
+                </div>
+              </div>`
+            )
+            .join('') +
+          `</div>`;
+
+    body.innerHTML = `
+      <div class="mem-quick-add">
+        <input id="mem-quick-fact-input" type="text" placeholder="Добавить важный факт..." />
+        <div id="mem-quick-fact-btn" class="mem-quick-add-btn" title="Добавить">+</div>
+      </div>
+      ${rowsHtml}
+    `;
+
+    const addFactNow = async () => {
+      const inp = document.getElementById('mem-quick-fact-input');
+      const val = inp?.value?.trim();
+      if (!val) return;
+      store.facts.unshift({ id: uid('f'), text: val, enabled: true, locked: true });
+      inp.value = '';
+      await saveChatStore();
       renderModalContent();
+    };
+
+    document.getElementById('mem-quick-fact-btn')?.addEventListener('click', addFactNow);
+    document.getElementById('mem-quick-fact-input')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') addFactNow();
     });
-  });
 
-  const container = document.getElementById('mem-facts-container');
-  const filtered = activeTab === 'all' ? store.facts : store.facts.filter((f) => f.category === activeTab);
+    body.querySelectorAll('.mem-fact-row').forEach((row) => {
+      const id = row.dataset.id;
+      const fact = store.facts.find((x) => x.id === id);
+      if (!fact) return;
 
-  if (filtered.length === 0) {
-    container.innerHTML = `<div class="mem-empty">Пока нет снимков в этой категории. Нажми «👏 Сделать снимок памяти» или добавь факт вручную!</div>`;
+      const ta = row.querySelector('.mem-fact-edit');
+      autoResizeTextarea(ta);
+      ta.addEventListener('input', () => autoResizeTextarea(ta));
+      ta.addEventListener('change', async () => {
+        fact.text = ta.value.trim();
+        await saveChatStore();
+        renderModalContent();
+      });
+
+      row.querySelector('.mem-pin-dot').addEventListener('click', async () => {
+        fact.locked = !fact.locked;
+        await saveChatStore();
+        renderModalContent();
+      });
+
+      row.querySelector('.act-mute').addEventListener('click', async () => {
+        fact.enabled = fact.enabled === false;
+        await saveChatStore();
+        renderModalContent();
+      });
+
+      row.querySelector('.act-del').addEventListener('click', async () => {
+        store.facts = store.facts.filter((x) => x.id !== id);
+        await saveChatStore();
+        renderModalContent();
+      });
+    });
     return;
   }
 
-  container.innerHTML = filtered
-    .map((f) => {
-      const catLabel = CATEGORIES[f.category]?.label || '⏳ События';
-      return `
-      <div class="mem-fact-card ${f.enabled === false ? 'disabled' : ''} ${f.locked ? 'locked' : ''}" data-id="${escapeHtml(f.id)}">
-        <div class="mem-fact-top">
-          <span>${escapeHtml(catLabel)}</span>
-          <div class="mem-fact-actions">
-            <button type="button" class="mem-icon-btn act-lock" title="Закрепить факт">${f.locked ? '🔒' : '🔓'}</button>
-            <button type="button" class="mem-icon-btn act-toggle" title="Вкл/выкл в промпте">${f.enabled === false ? '🙈' : '👁️'}</button>
-            <button type="button" class="mem-icon-btn act-del" title="Удалить">✕</button>
-          </div>
-        </div>
-        <textarea class="mem-fact-text">${escapeHtml(f.text)}</textarea>
-      </div>`;
-    })
-    .join('');
+  // Вкладка «Хроника»
+  const chaptersHtml =
+    store.chapters.length === 0
+      ? `<div class="mem-empty-hint" style="padding:12px;">Главы появятся автоматически по мере продвижения ролевой ✨</div>`
+      : store.chapters
+          .map(
+            (ch, idx) => `
+            <div class="mem-chapter-item" data-idx="${idx}">
+              <div class="mem-chapter-meta">
+                <span>Сообщения ${escapeHtml(ch.range || `#${idx + 1}`)}</span>
+                <span class="mem-mini-act ch-del" title="Удалить главу">✕</span>
+              </div>
+              <textarea rows="1" class="mem-fact-edit ch-edit">${escapeHtml(ch.text)}</textarea>
+            </div>`
+          )
+          .join('');
 
-  container.querySelectorAll('.mem-fact-card').forEach((card) => {
-    const id = card.dataset.id;
-    const fact = store.facts.find((x) => x.id === id);
-    if (!fact) return;
+  body.innerHTML = `
+    <div class="mem-canon-card">
+      <div class="mem-section-label">
+        <span>Основа сюжета (долгосрочный канон)</span>
+      </div>
+      <textarea id="mem-canon-input" class="mem-canon-textarea" placeholder="Сюда автоматически уплотняются старые главы больших чатов (можно редактировать вручную)...">${escapeHtml(store.coreCanon || '')}</textarea>
+    </div>
 
-    card.querySelector('.act-lock').addEventListener('click', async () => {
-      fact.locked = !fact.locked;
+    <div class="mem-section-label" style="padding:2px 2px 0;">
+      <span>Последние главы</span>
+      <span id="mem-toggle-preview" style="cursor:pointer;text-transform:none;font-weight:500;color:var(--mem-sub);">
+        ${showPromptPreview ? 'Скрыть промпт ▴' : 'Что видит бот ▾'}
+      </span>
+    </div>
+
+    ${showPromptPreview ? `<div class="mem-preview-box">${escapeHtml(promptText || 'Промпт памяти пока пуст.')}</div>` : ''}
+
+    <div class="mem-clean-list">${chaptersHtml}</div>
+  `;
+
+  const canonInput = document.getElementById('mem-canon-input');
+  autoResizeTextarea(canonInput);
+  canonInput?.addEventListener('input', () => autoResizeTextarea(canonInput));
+  canonInput?.addEventListener('change', async () => {
+    store.coreCanon = canonInput.value.trim();
+    await saveChatStore();
+    renderModalContent();
+  });
+
+  document.getElementById('mem-toggle-preview')?.addEventListener('click', () => {
+    showPromptPreview = !showPromptPreview;
+    renderModalContent();
+  });
+
+  body.querySelectorAll('.mem-chapter-item').forEach((item) => {
+    const idx = Number(item.dataset.idx);
+    const ch = store.chapters[idx];
+    if (!ch) return;
+
+    const ta = item.querySelector('.ch-edit');
+    autoResizeTextarea(ta);
+    ta.addEventListener('input', () => autoResizeTextarea(ta));
+    ta.addEventListener('change', async () => {
+      ch.text = ta.value.trim();
       await saveChatStore();
       renderModalContent();
     });
 
-    card.querySelector('.act-toggle').addEventListener('click', async () => {
-      fact.enabled = fact.enabled === false;
+    item.querySelector('.ch-del').addEventListener('click', async () => {
+      store.chapters.splice(idx, 1);
       await saveChatStore();
       renderModalContent();
-    });
-
-    card.querySelector('.act-del').addEventListener('click', async () => {
-      store.facts = store.facts.filter((x) => x.id !== id);
-      await saveChatStore();
-      renderModalContent();
-    });
-
-    card.querySelector('.mem-fact-text').addEventListener('change', async (e) => {
-      fact.text = e.target.value.trim();
-      await saveChatStore();
     });
   });
 }
 
-/* === Настройки расширения + блок Своего API === */
+/* === Настройки расширения в меню Extensions === */
 function mountSettingsPanel() {
   if (document.getElementById('memorize-settings-panel')) return;
   const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
@@ -809,64 +1129,80 @@ function mountSettingsPanel() {
   wrapper.className = 'inline-drawer';
   wrapper.innerHTML = `
     <div class="inline-drawer-toggle inline-drawer-header">
-      <b>📸 Memorize: Лу Гуан и Чэн Сяоши</b>
+      <b>🐾 Memorize: Лу Гуан и Чэн Сяоши</b>
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
     <div class="inline-drawer-content" style="display:flex;flex-direction:column;gap:8px;padding-top:8px;">
       <label class="checkbox_label">
         <input id="mem_cfg_enabled" type="checkbox" ${s.enabled ? 'checked' : ''} />
-        <span>Включить память фактов (Memorize)</span>
+        <span>Включить память чата (инжект в промпт)</span>
       </label>
       <label class="checkbox_label">
         <input id="mem_cfg_chibi" type="checkbox" ${s.showChibi ? 'checked' : ''} />
-        <span>Показывать чиби-виджет Лу Гуана и Чэн Сяоши</span>
+        <span>Показывать моти-маскота на экране</span>
       </label>
+      <div>
+        <small>Вид маскота:</small>
+        <select id="mem_cfg_mascot_mode" class="text_pole">
+          <option value="duo" ${s.mascotMode === 'duo' ? 'selected' : ''}>🐱🐶 Дуэт (Лу Гуан + Чэн Сяоши)</option>
+          <option value="lg" ${s.mascotMode === 'lg' ? 'selected' : ''}>🐱 Только котик Лу Гуан (компактный)</option>
+          <option value="cxs" ${s.mascotMode === 'cxs' ? 'selected' : ''}>🐶 Только щенок Чэн Сяоши (компактный)</option>
+        </select>
+      </div>
       <label class="checkbox_label">
         <input id="mem_cfg_auto" type="checkbox" ${s.autoExtract ? 'checked' : ''} />
         <span>Авто-выжимка каждые N сообщений</span>
       </label>
-      <div>
-        <small>Интервал авто-выжимки (сообщений):</small>
-        <input id="mem_cfg_interval" class="text_pole" type="number" min="2" max="100" value="${Number(s.everyNMessages) || 10}" />
-      </div>
-      <div>
-        <small>Глубина вставки в чат (Depth):</small>
-        <input id="mem_cfg_depth" class="text_pole" type="number" min="0" max="50" value="${Number(s.injectionDepth) ?? 2}" />
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;">
+          <small>Интервал (сообщ.):</small>
+          <input id="mem_cfg_interval" class="text_pole" type="number" min="4" max="100" value="${Number(s.everyNMessages) || 16}" />
+        </div>
+        <div style="flex:1;">
+          <small>Глубина (Depth):</small>
+          <input id="mem_cfg_depth" class="text_pole" type="number" min="0" max="50" value="${Number(s.injectionDepth) ?? 2}" />
+        </div>
       </div>
 
       <hr style="opacity:0.2;margin:4px 0;" />
 
       <label class="checkbox_label">
         <input id="mem_cfg_use_custom_api" type="checkbox" ${s.useCustomApi ? 'checked' : ''} />
-        <span><b>🔑 Использовать свой API с ключом</b> (отдельно от ST)</span>
+        <span><b>🔑 Свой API с ключом</b> (авто-список моделей)</span>
       </label>
 
-      <div id="mem_custom_api_block" style="display:${s.useCustomApi ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px;border:1px solid rgba(126,168,255,0.25);border-radius:8px;">
+      <div id="mem_custom_api_block" style="display:${s.useCustomApi ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px;border:1px solid rgba(155,184,255,0.22);border-radius:10px;">
         <div>
-          <small>API Base URL (OpenAI-совместимый):</small>
-          <input id="mem_cfg_api_url" class="text_pole" type="text" placeholder="https://openrouter.ai/api/v1" value="${escapeHtml(s.customApiUrl)}" />
+          <small>API Base URL:</small>
+          <input id="mem_cfg_api_url" class="text_pole" type="text" placeholder="https://elysiumai.net/v1" value="${escapeHtml(s.customApiUrl)}" />
         </div>
         <div>
           <small>API Key (хранится только локально в браузере):</small>
           <input id="mem_cfg_api_key" class="text_pole" type="password" placeholder="sk-..." value="${escapeHtml(getApiKey())}" />
         </div>
-        <div>
-          <small>Модель для выжимки фактов:</small>
-          <input id="mem_cfg_api_model" class="text_pole" list="mem_models_datalist" type="text" placeholder="deepseek/deepseek-chat" value="${escapeHtml(s.customApiModel)}" />
-          <datalist id="mem_models_datalist"></datalist>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+          <small>Выберите модель (скролл):</small>
+          <span id="mem_cfg_refresh_models" style="font-size:11.5px;cursor:pointer;color:#9bb8ff;">🔄 Обновить</span>
         </div>
-        <button id="mem_cfg_test_api" class="menu_button" type="button">🔌 Проверить ключ и загрузить модели</button>
+        <div id="mem_model_picker_host"></div>
         <small id="mem_cfg_api_status" style="opacity:0.85;"></small>
       </div>
 
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
-        <button id="mem_cfg_open_modal" class="menu_button" type="button">📸 Открыть альбом фактов</button>
-        <button id="mem_cfg_reset_pos" class="menu_button" type="button">Сбросить позицию чибиков</button>
+        <button id="mem_cfg_open_modal" class="menu_button" type="button">🐾 Открыть память чата</button>
+        <button id="mem_cfg_reset_pos" class="menu_button" type="button">Сбросить позицию маскота</button>
       </div>
     </div>
   `;
 
   host.appendChild(wrapper);
+  renderModelPickerList();
+
+  // Автозагрузка списка моделей сразу при открытии, если URL и ключ уже введены
+  if (s.useCustomApi && s.customApiUrl && getApiKey()) {
+    fetchModelsAutomatically(true);
+  }
 
   document.getElementById('mem_cfg_enabled').addEventListener('change', (e) => {
     getSettings().enabled = e.target.checked;
@@ -881,13 +1217,19 @@ function mountSettingsPanel() {
     updateWidgetBadge();
   });
 
+  document.getElementById('mem_cfg_mascot_mode').addEventListener('change', (e) => {
+    getSettings().mascotMode = e.target.value;
+    saveSettings();
+    renderWidgetMascot();
+  });
+
   document.getElementById('mem_cfg_auto').addEventListener('change', (e) => {
     getSettings().autoExtract = e.target.checked;
     saveSettings();
   });
 
   document.getElementById('mem_cfg_interval').addEventListener('change', (e) => {
-    getSettings().everyNMessages = Math.max(2, Number(e.target.value) || 10);
+    getSettings().everyNMessages = Math.max(4, Number(e.target.value) || 16);
     saveSettings();
   });
 
@@ -901,23 +1243,24 @@ function mountSettingsPanel() {
     getSettings().useCustomApi = e.target.checked;
     saveSettings();
     document.getElementById('mem_custom_api_block').style.display = e.target.checked ? 'flex' : 'none';
+    if (e.target.checked) fetchModelsAutomatically(false);
   });
 
-  document.getElementById('mem_cfg_api_url').addEventListener('change', (e) => {
+  document.getElementById('mem_cfg_api_url').addEventListener('input', (e) => {
     getSettings().customApiUrl = e.target.value.trim();
     saveSettings();
+    scheduleAutoModelFetch();
   });
 
-  document.getElementById('mem_cfg_api_key').addEventListener('change', (e) => {
+  document.getElementById('mem_cfg_api_key').addEventListener('input', (e) => {
     setApiKey(e.target.value);
+    scheduleAutoModelFetch();
   });
 
-  document.getElementById('mem_cfg_api_model').addEventListener('change', (e) => {
-    getSettings().customApiModel = e.target.value.trim();
-    saveSettings();
+  document.getElementById('mem_cfg_refresh_models').addEventListener('click', () => {
+    fetchModelsAutomatically(false);
   });
 
-  document.getElementById('mem_cfg_test_api').addEventListener('click', testAndLoadModels);
   document.getElementById('mem_cfg_open_modal').addEventListener('click', openModal);
 
   document.getElementById('mem_cfg_reset_pos').addEventListener('click', () => {
@@ -927,36 +1270,46 @@ function mountSettingsPanel() {
     if (w) {
       w.style.left = 'auto';
       w.style.top = 'auto';
-      w.style.right = '18px';
-      w.style.bottom = '90px';
+      w.style.right = '12px';
+      w.style.bottom = '110px';
     }
   });
 }
 
+/* === Жизненный цикл и гарантированный инжект перед каждым ответом === */
 function bindEvents() {
   const ctx = getST();
   if (!ctx?.eventSource || !ctx?.event_types) return;
+  const ev = ctx.event_types;
 
-  ctx.eventSource.on(ctx.event_types.CHAT_CHANGED, () => {
+  const refreshState = () => {
     updateInjection();
     updateWidgetBadge();
     if (document.getElementById('memorize-modal-backdrop')?.classList.contains('open')) {
       renderModalContent();
     }
-  });
+  };
 
-  ctx.eventSource.on(ctx.event_types.MESSAGE_RECEIVED, async () => {
-    const settings = getSettings();
-    if (!settings.enabled || !settings.autoExtract) return;
+  if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, refreshState);
+  if (ev.GENERATION_STARTED) ctx.eventSource.on(ev.GENERATION_STARTED, updateInjection);
+  if (ev.MESSAGE_SENT) ctx.eventSource.on(ev.MESSAGE_SENT, updateInjection);
+  if (ev.MESSAGE_DELETED) ctx.eventSource.on(ev.MESSAGE_DELETED, refreshState);
 
-    const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
-    const store = getChatStore();
-    const unsummarized = chat.length - (store.lastProcessedIndex || 0);
+  if (ev.MESSAGE_RECEIVED) {
+    ctx.eventSource.on(ev.MESSAGE_RECEIVED, async () => {
+      updateInjection();
+      const settings = getSettings();
+      if (!settings.enabled || !settings.autoExtract) return;
 
-    if (unsummarized >= (Number(settings.everyNMessages) || 10)) {
-      await runExtraction(false);
-    }
-  });
+      const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
+      const store = getChatStore();
+      const unsummarized = chat.length - (store.lastProcessedIndex || 0);
+
+      if (unsummarized >= (Number(settings.everyNMessages) || 16)) {
+        await runExtraction(false);
+      }
+    });
+  }
 }
 
 function initExtension() {

@@ -1,382 +1,583 @@
-/* === Memorize: Time Photo Studio (Lu Guang & Cheng Xiaoshi) === */
+/* === Memorize v1.2: Mochi Chibis & Minimalist Memory === */
 :root {
-  --mem-bg: rgba(16, 22, 36, 0.94);
-  --mem-card: rgba(26, 35, 56, 0.92);
-  --mem-border: rgba(126, 168, 255, 0.28);
-  --mem-gold: #f4c96b;
-  --mem-blue: #7eb6ff;
-  --mem-text: #eef3ff;
-  --mem-muted: #9fb0d1;
+  --mem-surface: rgba(18, 20, 30, 0.96);
+  --mem-elevated: rgba(28, 32, 48, 0.72);
+  --mem-line: rgba(165, 180, 225, 0.16);
+  --mem-accent: #9bb8ff;
+  --mem-gold: #ffd97d;
+  --mem-text: #f2f5ff;
+  --mem-sub: #939db8;
 }
 
+/* === 1. Плавающий безрамочный моти-маскот (в стиле референса) === */
 #memorize-chibi-widget {
   position: fixed;
-  bottom: 90px;
-  right: 18px;
+  bottom: 110px;
+  right: 12px;
   z-index: 3050;
   user-select: none;
+  -webkit-user-select: none;
   touch-action: none;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.45));
-  transition: transform 0.2s ease;
+  justify-content: center;
+  cursor: grab;
+  filter: drop-shadow(0 5px 11px rgba(8, 10, 20, 0.55));
+  transition: opacity 0.2s ease;
+}
+
+#memorize-chibi-widget:active {
+  cursor: grabbing;
 }
 
 #memorize-chibi-widget.mem-hidden {
   display: none !important;
 }
 
-.mem-chibi-stage {
+.mem-mascot-wrap {
   position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 6px 10px 4px;
-  background: linear-gradient(145deg, rgba(18, 26, 44, 0.92), rgba(30, 43, 72, 0.88));
-  border: 1.5px solid var(--mem-border);
-  border-radius: 22px;
-  cursor: grab;
-  backdrop-filter: blur(8px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: mem-mochi-breathe 3.2s ease-in-out infinite;
+  transform-origin: center bottom;
 }
 
-.mem-chibi-stage:active {
-  cursor: grabbing;
+.mem-mascot-wrap.mode-duo svg {
+  width: 78px;
+  height: 52px;
+  display: block;
 }
 
-.mem-chibi-char {
-  width: 50px;
-  height: 58px;
-  cursor: pointer;
-  transition: transform 0.2s ease;
-  animation: mem-float 3.4s ease-in-out infinite;
+.mem-mascot-wrap.mode-single svg {
+  width: 54px;
+  height: 54px;
+  display: block;
 }
 
-.mem-chibi-char.cxs {
-  animation-delay: -1.5s;
+@keyframes mem-mochi-breathe {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-2.5px) scale(1.02, 0.98); }
 }
 
-.mem-chibi-char:hover {
-  transform: translateY(-3px) scale(1.05);
+.mem-mascot-wrap.mem-jelly {
+  animation: mem-jelly-pop 0.42s ease;
 }
 
-@keyframes mem-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
+@keyframes mem-jelly-pop {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(1.14, 0.88); }
+  70% { transform: scale(0.95, 1.06); }
+  100% { transform: scale(1, 1); }
 }
 
-#memorize-chibi-widget.mem-syncing .mem-chibi-stage {
-  border-color: var(--mem-gold);
-  box-shadow: 0 0 18px rgba(244, 201, 107, 0.55), inset 0 0 10px rgba(126, 182, 255, 0.3);
+/* Свечение при фоновой выжимке */
+#memorize-chibi-widget.mem-syncing {
+  filter: drop-shadow(0 0 12px rgba(255, 217, 125, 0.75));
 }
 
 #memorize-chibi-widget.mem-syncing .mem-eye-glow {
-  fill: #ffd86b !important;
+  fill: #ffe07d !important;
 }
 
-#memorize-chibi-widget.mem-syncing .mem-chibi-char {
-  animation: mem-clap-pulse 0.7s ease-in-out infinite alternate;
+#memorize-chibi-widget.mem-syncing .mem-mascot-wrap {
+  animation: mem-sync-bob 0.65s ease-in-out infinite alternate;
 }
 
-@keyframes mem-clap-pulse {
-  from { transform: scale(0.97) translateY(0); }
-  to { transform: scale(1.05) translateY(-4px); }
+@keyframes mem-sync-bob {
+  from { transform: translateY(0) scale(0.98); }
+  to { transform: translateY(-4px) scale(1.05); }
 }
 
+/* Круглый мини-бейдж счётчика в правом нижнем углу маскота */
+.mem-corner-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(24, 27, 44, 0.94);
+  border: 1.4px solid rgba(168, 186, 255, 0.55);
+  color: #dbe5ff;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-sizing: border-box;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+/* Компактное облачко статуса над чибиками */
 .mem-speech-bubble {
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 6px);
   right: 0;
   width: max-content;
-  max-width: 220px;
-  padding: 7px 11px;
-  font-size: 12px;
+  max-width: 205px;
+  padding: 6px 10px;
+  font-size: 11.5px;
   line-height: 1.35;
   color: var(--mem-text);
-  background: var(--mem-bg);
-  border: 1px solid var(--mem-gold);
-  border-radius: 12px 12px 4px 12px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  background: rgba(20, 23, 36, 0.95);
+  border: 1px solid rgba(255, 217, 125, 0.45);
+  border-radius: 12px 12px 3px 12px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.42);
   pointer-events: none;
   opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  transform: translateY(4px) scale(0.96);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .mem-speech-bubble.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
-.mem-widget-bar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.mem-pill-btn {
-  background: var(--mem-bg);
-  color: var(--mem-text);
-  border: 1px solid var(--mem-border);
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.18s ease;
-}
-
-.mem-pill-btn:hover {
-  border-color: var(--mem-gold);
-  color: var(--mem-gold);
-}
-
-.mem-badge-count {
-  background: rgba(126, 182, 255, 0.2);
-  color: var(--mem-blue);
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 10.5px;
-}
-
+/* === 2. Минималистичное окно памяти (изолировано от стилей ST) === */
 #memorize-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 3200;
-  background: rgba(6, 10, 18, 0.72);
-  backdrop-filter: blur(5px);
+  background: rgba(6, 8, 15, 0.68);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
   display: none;
   align-items: center;
   justify-content: center;
   padding: 12px;
+  box-sizing: border-box;
 }
 
 #memorize-modal-backdrop.open {
   display: flex;
 }
 
-.mem-modal {
+.mem-sheet {
   width: 100%;
-  max-width: 680px;
-  max-height: 86vh;
-  background: var(--mem-bg);
+  max-width: 520px;
+  max-height: 84vh;
+  background: var(--mem-surface);
   color: var(--mem-text);
-  border: 1px solid var(--mem-border);
-  border-radius: 18px;
+  border: 1px solid var(--mem-line);
+  border-radius: 20px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.65);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-.mem-modal-header {
+.mem-sheet-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: linear-gradient(90deg, rgba(28, 40, 68, 0.95), rgba(20, 28, 48, 0.95));
-  border-bottom: 1px solid var(--mem-border);
-  gap: 8px;
+  padding: 13px 16px 10px;
+  gap: 10px;
 }
 
-.mem-modal-title {
+.mem-header-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.mem-header-title {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
-.mem-modal-title strong {
-  font-size: 15px;
-  color: var(--mem-gold);
-}
-
-.mem-modal-title span {
-  font-size: 11.5px;
-  color: var(--mem-muted);
-}
-
-.mem-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 16px;
-  border-bottom: 1px solid rgba(126, 168, 255, 0.14);
-}
-
-.mem-btn {
-  background: rgba(126, 182, 255, 0.13);
+.mem-header-title strong {
+  font-size: 14.5px;
+  font-weight: 650;
   color: var(--mem-text);
-  border: 1px solid var(--mem-border);
-  border-radius: 9px;
-  padding: 6px 11px;
-  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.mem-prompt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--mem-sub);
+  margin-top: 1px;
+}
+
+.mem-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5adbb5;
+  display: inline-block;
+}
+
+.mem-dot.off {
+  background: #77809a;
+}
+
+.mem-close-x {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--mem-sub);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
   cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mem-close-x:hover {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--mem-text);
+}
+
+/* Верхняя полоса: компактный переключатель 2 вкладок + быстрые иконки */
+.mem-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--mem-line);
+}
+
+.mem-segmented {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.mem-seg-item {
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mem-sub);
+  cursor: pointer;
+  user-select: none;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.mem-btn:hover {
-  border-color: var(--mem-gold);
-  background: rgba(244, 201, 107, 0.16);
-}
-
-.mem-btn.primary {
-  background: linear-gradient(135deg, #3b6cb7, #2b4c8c);
-  border-color: var(--mem-blue);
+.mem-seg-item.active {
+  background: rgba(155, 184, 255, 0.18);
+  color: var(--mem-text);
   font-weight: 600;
 }
 
-.mem-tabs {
-  display: flex;
-  overflow-x: auto;
+.mem-actions-inline {
+  display: inline-flex;
+  align-items: center;
   gap: 5px;
-  padding: 8px 16px;
-  border-bottom: 1px solid rgba(126, 168, 255, 0.12);
 }
 
-.mem-tab {
-  background: transparent;
-  color: var(--mem-muted);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 4px 11px;
-  font-size: 12px;
-  white-space: nowrap;
+.mem-chip {
+  padding: 5px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--mem-line);
+  color: var(--mem-text);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
 }
 
-.mem-tab.active {
-  color: var(--mem-gold);
-  border-color: var(--mem-gold);
-  background: rgba(244, 201, 107, 0.1);
+.mem-chip:hover {
+  border-color: rgba(155, 184, 255, 0.45);
+  background: rgba(155, 184, 255, 0.12);
 }
 
-.mem-modal-body {
-  padding: 12px 16px;
+.mem-chip.accent {
+  background: rgba(155, 184, 255, 0.16);
+  border-color: rgba(155, 184, 255, 0.42);
+  color: #dce7ff;
+}
+
+/* Контент панели */
+.mem-sheet-body {
+  padding: 12px 16px 16px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.mem-summary-box {
-  background: var(--mem-card);
-  border: 1px solid rgba(244, 201, 107, 0.32);
-  border-radius: 12px;
-  padding: 10px 12px;
-}
-
-.mem-summary-box label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--mem-gold);
-  margin-bottom: 6px;
-}
-
-.mem-summary-box textarea {
-  width: 100%;
-  min-height: 68px;
-  background: rgba(10, 15, 26, 0.65);
-  color: var(--mem-text);
-  border: 1px solid var(--mem-border);
-  border-radius: 8px;
-  padding: 8px;
-  font-size: 12.5px;
-  resize: vertical;
-}
-
-.mem-facts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 9px;
-}
-
-.mem-fact-card {
-  background: var(--mem-card);
-  border: 1px solid var(--mem-border);
+/* Строка быстрого добавления факта */
+.mem-quick-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--mem-line);
   border-radius: 11px;
-  padding: 9px 10px;
+  padding: 4px 6px 4px 11px;
+}
+
+.mem-quick-add input {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: var(--mem-text) !important;
+  font-size: 12.5px;
+  padding: 4px 0;
+  min-width: 0;
+}
+
+.mem-quick-add-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(155, 184, 255, 0.18);
+  color: var(--mem-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Чистый список фактов без громоздких рамок */
+.mem-clean-list {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 
-.mem-fact-card.disabled {
-  opacity: 0.5;
+.mem-fact-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: var(--mem-elevated);
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
 }
 
-.mem-fact-card.locked {
-  border-color: var(--mem-gold);
+.mem-fact-row:focus-within {
+  border-color: rgba(155, 184, 255, 0.35);
 }
 
-.mem-fact-top {
+.mem-fact-row.locked {
+  border-color: rgba(255, 217, 125, 0.28);
+}
+
+.mem-fact-row.muted {
+  opacity: 0.42;
+}
+
+.mem-pin-dot {
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0.65;
+  flex-shrink: 0;
+  padding-top: 1px;
+  user-select: none;
+}
+
+.mem-fact-row.locked .mem-pin-dot {
+  opacity: 1;
+}
+
+.mem-fact-edit {
+  flex: 1;
+  min-width: 0;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: var(--mem-text) !important;
+  font-size: 12.5px;
+  line-height: 1.42;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.mem-row-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mem-mini-act {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11.5px;
+  color: var(--mem-sub);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mem-mini-act:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--mem-text);
+}
+
+/* Вкладка Хроника (Долгосрочный канон + Главы чата) */
+.mem-canon-card {
+  background: var(--mem-elevated);
+  border: 1px solid var(--mem-line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mem-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mem-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mem-canon-textarea {
+  width: 100%;
+  min-height: 58px;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  color: var(--mem-text) !important;
+  font-size: 12.5px;
+  line-height: 1.45;
+  resize: vertical;
+  padding: 0;
+  font-family: inherit;
+}
+
+.mem-chapter-item {
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2.5px solid rgba(155, 184, 255, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mem-chapter-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--mem-blue);
+  color: var(--mem-sub);
 }
 
-.mem-fact-actions {
-  display: flex;
-  gap: 4px;
+.mem-preview-box {
+  margin-top: 4px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px dashed var(--mem-line);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--mem-sub);
+  white-space: pre-wrap;
 }
 
-.mem-icon-btn {
-  background: transparent;
-  border: none;
-  color: var(--mem-muted);
-  cursor: pointer;
-  padding: 2px 5px;
-  border-radius: 5px;
-  font-size: 12px;
-}
-
-.mem-icon-btn:hover {
-  color: var(--mem-gold);
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.mem-fact-text {
-  width: 100%;
-  background: rgba(10, 14, 24, 0.5);
-  color: var(--mem-text);
-  border: 1px solid rgba(126, 168, 255, 0.18);
-  border-radius: 7px;
-  padding: 6px 8px;
-  font-size: 12.5px;
-  line-height: 1.35;
-  resize: vertical;
-  min-height: 46px;
-}
-
-.mem-add-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.mem-add-row select,
-.mem-add-row input {
-  background: rgba(12, 18, 30, 0.85);
-  color: var(--mem-text);
-  border: 1px solid var(--mem-border);
-  border-radius: 8px;
-  padding: 6px 9px;
-  font-size: 12.5px;
-}
-
-.mem-add-row input {
-  flex: 1;
-  min-width: 160px;
-}
-
-.mem-empty {
+.mem-empty-hint {
   text-align: center;
-  padding: 18px;
-  color: var(--mem-muted);
+  padding: 22px 12px;
+  color: var(--mem-sub);
   font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* === 3. Скроллируемый авто-список моделей в настройках API === */
+.mem-model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.mem-selected-model-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: rgba(155, 184, 255, 0.1);
+  border: 1px solid rgba(155, 184, 255, 0.32);
+  font-size: 12.5px;
+  color: #eef3ff;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.mem-model-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px;
+  border-radius: 9px;
+  background: rgba(10, 12, 20, 0.78);
+  border: 1px solid rgba(155, 184, 255, 0.22);
+}
+
+.mem-model-list {
+  max-height: 180px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mem-model-option {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #d5def2;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  word-break: break-all;
+}
+
+.mem-model-option:hover {
+  background: rgba(155, 184, 255, 0.14);
+}
+
+.mem-model-option.selected {
+  background: rgba(155, 184, 255, 0.24);
+  color: #ffd97d;
+  font-weight: 600;
 }
