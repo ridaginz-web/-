@@ -2,15 +2,18 @@ import { getMascotSVG } from './mascots.js';
 import {
   CATEGORIES,
   CATEGORY_KEYS,
+  FLASHBACK_MODES,
   QUOTES,
   buildPromptText,
   createSnapshot,
   escapeHtml,
   estimateTokens,
+  exportMemoryPack,
   getChatStore,
   getST,
   getSettings,
   highlightMatch,
+  importMemoryPack,
   normalizeCategory,
   registerUiHooks,
   rollbackSnapshot,
@@ -29,14 +32,32 @@ let quickAddOpen = false;
 let quickAddCat = 'events';
 let editingFactId = null;
 let showPromptPreview = false;
+let transferOpen = false;
+let lastFlashbackMode = 'thought';
 let bubbleTimer = null;
 let eventsBound = false;
+
+function playShutterFlash() {
+  const sheet = document.querySelector('#memorize-modal-backdrop .mem-sheet');
+  if (sheet) {
+    sheet.classList.remove('mem-shutter-flash');
+    void sheet.offsetWidth;
+    sheet.classList.add('mem-shutter-flash');
+  }
+  const wrap = document.getElementById('memorize-mascot-wrap');
+  if (wrap) {
+    wrap.classList.remove('mem-jelly');
+    void wrap.offsetWidth;
+    wrap.classList.add('mem-jelly');
+  }
+}
 
 async function triggerFlashbackNow() {
   const store = getChatStore();
   if (!store.activeFlashback?.text) return;
 
   updateInjection();
+  playShutterFlash();
   closeModal();
   showBubble('Чэн Сяоши: *Хлоп!* «Персонаж вспоминает этот момент...» 📸✨', 4000);
 
@@ -98,19 +119,33 @@ function renderWidgetMascot() {
 
 function updateWidgetBadge() {
   const store = getChatStore();
+  const settings = getSettings();
   const activeCount = store.facts.filter((f) => f.enabled !== false).length;
   const badge = document.getElementById('memorize-fact-count');
-  if (badge) badge.textContent = String(activeCount);
 
+  const chatLen = Array.isArray(getST()?.chat) ? getST().chat.length : 0;
+  const unsummarized = Math.max(0, chatLen - Math.min(store.lastProcessedIndex || 0, chatLen));
+  const interval = Math.max(4, toFiniteNumber(settings.everyNMessages, 16));
+  const pct = settings.autoExtract ? Math.min(100, Math.round((unsummarized / interval) * 100)) : 0;
+
+  if (badge) {
+    badge.textContent = String(activeCount);
+    badge.style.setProperty('--mem-prog', `${pct}%`);
+    badge.title = settings.autoExtract
+      ? `Фактов: ${activeCount} · До авто-сжатия: ${Math.max(0, interval - unsummarized)} сообщ. (${unsummarized}/${interval})`
+      : `Фактов в памяти: ${activeCount}`;
+  }
+
+  const hasFb = Boolean(store.activeFlashback?.text);
   const flashBadge = document.getElementById('memorize-flash-badge');
   if (flashBadge) {
-    flashBadge.classList.toggle('active', Boolean(store.activeFlashback?.text));
+    flashBadge.classList.toggle('active', hasFb);
   }
 
   const widget = document.getElementById('memorize-chibi-widget');
-  const settings = getSettings();
   if (widget) {
     widget.classList.toggle('mem-hidden', !settings.enabled || !settings.showChibi);
+    widget.classList.toggle('mem-fb-armed', hasFb);
   }
 }
 
@@ -241,9 +276,11 @@ function createModal() {
         </div>
         <div class="mem-header-actions">
           <div id="mem-run-extract" class="mem-chip accent" title="Сжать новые сообщения сейчас">✨ Сжать</div>
+          <div id="mem-transfer-btn" class="mem-chip" title="Перенести память в другой чат (Экспорт / Импорт)">📦</div>
           <div id="mem-rollback-btn" class="mem-chip" title="Откат Лу Гуана к прошлому снимку">⏪</div>
           <div id="mem-clear-all" class="mem-chip" title="Очистить память этого чата">🗑</div>
           <div id="mem-close-modal" class="mem-close-x" title="Закрыть">✕</div>
+          <input id="mem-import-file" type="file" accept=".json,application/json" style="display:none;" />
         </div>
       </div>
 
@@ -273,6 +310,25 @@ function createModal() {
   document.getElementById('mem-close-modal').addEventListener('click', closeModal);
   document.getElementById('mem-run-extract').addEventListener('click', () => runExtraction(true));
   document.getElementById('mem-rollback-btn').addEventListener('click', rollbackSnapshot);
+  document.getElementById('mem-transfer-btn').addEventListener('click', () => {
+    transferOpen = !transferOpen;
+    renderModalContent();
+  });
+
+  document.getElementById('mem-import-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = await importMemoryPack(text, 'replace');
+      transferOpen = false;
+      renderModalContent();
+      showBubble(`Память перенесена (${res.facts} факт.) 📦✨`, 3800);
+    } catch (err) {
+      showBubble(`Ошибка импорта: ${err.message}`, 4000);
+    }
+  });
 
   document.getElementById('mem-mini-mascot-tap').addEventListener('click', () => {
     const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
@@ -350,12 +406,103 @@ function openModal() {
 
 function closeModal() {
   editingFactId = null;
+  transferOpen = false;
   document.getElementById('memorize-modal-backdrop')?.classList.remove('open');
+}
+
+function renderTransferBox() {
+  if (!transferOpen) return '';
+  return `
+    <div class="mem-transfer-box">
+      <div class="mem-fb-head" style="color:var(--mem-accent);">
+        <span>📦 Перенос памяти («2-й сезон» чата)</span>
+        <span id="mem-close-transfer" style="cursor:pointer;color:var(--mem-sub);font-weight:500;">✕ Закрыть</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <div id="mem-copy-pack" class="mem-chip accent">📋 Скопировать</div>
+        <div id="mem-download-pack" class="mem-chip">💾 Скачать .json</div>
+        <div id="mem-upload-pack" class="mem-chip">📂 Из файла</div>
+      </div>
+      <textarea id="mem-transfer-json" class="mem-transfer-textarea" placeholder="Чтобы перенести память в новый чат: нажмите «📋 Скопировать» в старом чате, вставьте JSON сюда и выберите режим ниже..."></textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
+        <div id="mem-import-merge" class="mem-chip" title="Добавить факты и канон к текущей памяти">➕ Объединить</div>
+        <div id="mem-import-replace" class="mem-chip gold" title="Заменить память этого чата (можно отменить кнопкой ⏪)">📥 Загрузить слепок</div>
+      </div>
+    </div>
+  `;
+}
+
+function bindTransferEvents() {
+  if (!transferOpen) return;
+  document.getElementById('mem-close-transfer')?.addEventListener('click', () => {
+    transferOpen = false;
+    renderModalContent();
+  });
+
+  document.getElementById('mem-copy-pack')?.addEventListener('click', async () => {
+    const json = exportMemoryPack();
+    const ta = document.getElementById('mem-transfer-json');
+    if (ta) ta.value = json;
+    try {
+      await navigator.clipboard.writeText(json);
+      showBubble('Слепок памяти скопирован в буфер 📋✨', 3400);
+    } catch (_) {
+      ta?.select?.();
+      showBubble('Слепок показан в поле — скопируйте текст 📋', 3600);
+    }
+  });
+
+  document.getElementById('mem-download-pack')?.addEventListener('click', () => {
+    const json = exportMemoryPack();
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `memorize-chat-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showBubble('Файл памяти сохранён 💾✨', 3200);
+  });
+
+  document.getElementById('mem-upload-pack')?.addEventListener('click', () => {
+    document.getElementById('mem-import-file')?.click();
+  });
+
+  const runTextImport = async (mode) => {
+    const raw = document.getElementById('mem-transfer-json')?.value?.trim();
+    if (!raw) {
+      showBubble('Сначала вставьте JSON слепка в поле выше 📝', 3200);
+      return;
+    }
+    try {
+      const res = await importMemoryPack(raw, mode);
+      transferOpen = false;
+      renderModalContent();
+      showBubble(`Память загружена (${res.facts} факт.) 📦✨`, 3600);
+    } catch (err) {
+      showBubble(`Ошибка: ${err.message}`, 3800);
+    }
+  };
+
+  document.getElementById('mem-import-replace')?.addEventListener('click', () => runTextImport('replace'));
+  document.getElementById('mem-import-merge')?.addEventListener('click', () => runTextImport('merge'));
 }
 
 function renderFlashbackBanner(store) {
   const fb = store.activeFlashback;
   if (!fb || !fb.text?.trim()) return '';
+  const curMode = FLASHBACK_MODES[fb.mode] ? fb.mode : 'thought';
+  const modePills = Object.entries(FLASHBACK_MODES)
+    .map(
+      ([k, meta]) =>
+        `<span class="mem-fb-mode-pill ${curMode === k ? 'active' : ''}" data-fb-mode="${k}" title="${escapeHtml(
+          meta.hint
+        )}">${meta.icon} ${escapeHtml(meta.label)}</span>`
+    )
+    .join('');
+
   return `
     <div class="mem-flashback-banner">
       <div class="mem-fb-head">
@@ -363,8 +510,9 @@ function renderFlashbackBanner(store) {
         <span id="mem-cancel-fb" style="cursor:pointer;color:var(--mem-sub);font-weight:500;">✕ Снять</span>
       </div>
       <div class="mem-fb-quote">«${escapeHtml(fb.text)}»</div>
+      <div class="mem-fb-modes">${modePills}</div>
       <div class="mem-fb-actions">
-        <span class="mem-fb-hint">Вплетается в следующий ответ бота</span>
+        <span class="mem-fb-hint">${escapeHtml(FLASHBACK_MODES[curMode].hint)}</span>
         <div id="mem-fire-fb-now" class="mem-chip gold">⚡ Вспомнить сейчас</div>
       </div>
     </div>
@@ -376,6 +524,16 @@ function bindFlashbackBannerEvents(store) {
     store.activeFlashback = null;
     await saveChatStore();
     renderModalContent();
+  });
+  document.querySelectorAll('.mem-fb-mode-pill').forEach((pill) => {
+    pill.addEventListener('click', async () => {
+      const nextMode = pill.dataset.fbMode;
+      if (!nextMode || !FLASHBACK_MODES[nextMode] || !store.activeFlashback) return;
+      store.activeFlashback.mode = nextMode;
+      lastFlashbackMode = nextMode;
+      await saveChatStore();
+      renderModalContent();
+    });
   });
   document.getElementById('mem-fire-fb-now')?.addEventListener('click', () => {
     triggerFlashbackNow();
@@ -509,7 +667,7 @@ function renderModalContent() {
                     : `<div class="mem-fact-text-view" title="Нажми, чтобы персонаж вспомнил этот момент">${highlightMatch(
                         f.text,
                         searchQuery
-                      )}</div>`
+                      )}${f.isNew ? '<span class="mem-new-tag">new</span>' : ''}</div>`
                 }
                 <div class="mem-row-tools">
                   <span class="mem-mini-act act-edit" title="Редактировать">✎</span>
@@ -526,7 +684,8 @@ function renderModalContent() {
             .join('') +
           `</div>`;
 
-    body.innerHTML = `${renderFlashbackBanner(store)}${quickAddHtml}${rowsHtml}`;
+    body.innerHTML = `${renderTransferBox()}${renderFlashbackBanner(store)}${quickAddHtml}${rowsHtml}`;
+    bindTransferEvents();
     bindFlashbackBannerEvents(store);
 
     document.getElementById('mem-quick-cat-btn')?.addEventListener('click', () => {
@@ -574,7 +733,13 @@ function renderModalContent() {
         if (store.activeFlashback?.id === fact.id) {
           store.activeFlashback = null;
         } else {
-          store.activeFlashback = { id: fact.id, text: fact.text, firedCount: 0 };
+          store.activeFlashback = {
+            id: fact.id,
+            text: fact.text,
+            mode: lastFlashbackMode || 'thought',
+            firedCount: 0,
+          };
+          playShutterFlash();
         }
         await saveChatStore();
         renderModalContent();
@@ -592,6 +757,7 @@ function renderModalContent() {
           editFinished = true;
           const nextText = editTa.value.trim();
           if (nextText) fact.text = nextText;
+          fact.isNew = false;
           if (store.activeFlashback?.id === fact.id && nextText) {
             store.activeFlashback.text = nextText;
           }
@@ -683,6 +849,7 @@ function renderModalContent() {
           .join('');
 
   body.innerHTML = `
+    ${renderTransferBox()}
     ${renderFlashbackBanner(store)}
     <div class="mem-canon-card">
       <div class="mem-section-label">
@@ -705,6 +872,7 @@ function renderModalContent() {
     <div class="mem-clean-list">${chaptersHtml}</div>
   `;
 
+  bindTransferEvents();
   bindFlashbackBannerEvents(store);
 
   const canonInput = document.getElementById('mem-canon-input');
@@ -740,7 +908,13 @@ function renderModalContent() {
       if (store.activeFlashback?.id === ch.id) {
         store.activeFlashback = null;
       } else {
-        store.activeFlashback = { id: ch.id, text: ch.text, firedCount: 0 };
+        store.activeFlashback = {
+          id: ch.id,
+          text: ch.text,
+          mode: lastFlashbackMode || 'thought',
+          firedCount: 0,
+        };
+        playShutterFlash();
       }
       await saveChatStore();
       renderModalContent();
@@ -787,6 +961,17 @@ function bindEvents() {
   if (ev.CHAT_CHANGED) ctx.eventSource.on(ev.CHAT_CHANGED, refreshState);
   if (ev.GENERATION_STARTED) ctx.eventSource.on(ev.GENERATION_STARTED, updateInjection);
   if (ev.MESSAGE_DELETED) ctx.eventSource.on(ev.MESSAGE_DELETED, refreshState);
+
+  document.addEventListener('focusin', (e) => {
+    if (e.target?.id === 'send_textarea' && window.innerWidth <= 680) {
+      document.getElementById('memorize-chibi-widget')?.classList.add('mem-typing-dim');
+    }
+  });
+  document.addEventListener('focusout', (e) => {
+    if (e.target?.id === 'send_textarea') {
+      document.getElementById('memorize-chibi-widget')?.classList.remove('mem-typing-dim');
+    }
+  });
 
   if (ev.MESSAGE_SENT) {
     ctx.eventSource.on(ev.MESSAGE_SENT, async () => {
