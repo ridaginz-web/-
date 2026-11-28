@@ -1,14 +1,20 @@
-/* === Memorize v1.5.0: Top Category Tabs, Living Mochi Chibis, 3-Mode Flashbacks & Season Transfer === */
+/* === Memorize v1.6.0: iOS Bottom Sheet, Night Glass & Film Timeline === */
 #memorize-chibi-widget,
 #memorize-modal-backdrop,
 #memorize-settings-panel {
-  --mem-surface: rgba(18, 20, 30, 0.96);
-  --mem-elevated: rgba(28, 32, 48, 0.72);
-  --mem-line: rgba(165, 180, 225, 0.16);
-  --mem-accent: #9bb8ff;
+  --mem-surface: rgba(14, 17, 28, 0.94);
+  --mem-elevated: rgba(25, 30, 47, 0.76);
+  --mem-line: rgba(168, 188, 238, 0.16);
+  --mem-accent: #a2beff;
   --mem-gold: #ffd97d;
-  --mem-text: #f2f5ff;
-  --mem-sub: #939db8;
+  --mem-mint: #5ce0b8;
+  --mem-coral: #ff8b8b;
+  --mem-text: #f3f6ff;
+  --mem-sub: #94a0be;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
 /* === 1. Плавающий безрамочный моти-маскот (в стиле референса) === */
@@ -214,18 +220,18 @@
   transform: translateY(0) scale(1);
 }
 
-/* === 2. Минималистичное окно памяти (изолировано от стилей ST) === */
+/* === 2. Выезжающая шторка памяти (Ночное стекло Link Click + Дневник кадров) === */
 #memorize-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 3200;
-  background: rgba(6, 8, 15, 0.68);
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
+  background: rgba(5, 7, 14, 0.66);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
   display: none;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 12px;
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -233,33 +239,88 @@
   display: flex;
 }
 
+@media (min-width: 641px) {
+  #memorize-modal-backdrop {
+    align-items: center;
+    padding: 16px;
+  }
+}
+
 .mem-sheet {
   width: 100%;
-  max-width: 520px;
-  max-height: 84vh;
-  background: var(--mem-surface);
+  max-width: 540px;
+  max-height: 88vh;
+  max-height: 88dvh;
+  background:
+    radial-gradient(120% 60% at 15% 0%, rgba(130, 168, 255, 0.11), transparent 65%),
+    radial-gradient(90% 50% at 90% 0%, rgba(255, 217, 125, 0.08), transparent 60%),
+    var(--mem-surface);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
   color: var(--mem-text);
-  border: 1px solid var(--mem-line);
-  border-radius: 20px;
+  border: 1px solid rgba(175, 196, 245, 0.2);
+  border-bottom: none;
+  border-radius: 24px 24px 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  box-shadow: 0 -12px 44px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif !important;
+  line-height: 1.35;
+  letter-spacing: 0;
+  animation: mem-sheet-rise 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (min-width: 641px) {
+  .mem-sheet {
+    max-height: 84vh;
+    border-bottom: 1px solid rgba(175, 196, 245, 0.2);
+    border-radius: 22px;
+    box-shadow: 0 22px 56px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  }
+}
+
+@keyframes mem-sheet-rise {
+  from {
+    opacity: 0.4;
+    transform: translateY(36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mem-sheet-handle-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 0 2px;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.mem-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(190, 205, 240, 0.28);
 }
 
 .mem-sheet-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px 9px;
-  gap: 8px;
+  padding: 4px 14px 8px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .mem-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
   flex: 1;
 }
@@ -271,56 +332,40 @@
 }
 
 .mem-header-title strong {
-  font-size: 14.5px;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--mem-text);
   letter-spacing: -0.01em;
-  white-space: nowrap;
+  line-height: 1.2;
 }
 
-.mem-prompt-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10.8px;
+.mem-header-sub {
+  font-size: 11px;
   color: var(--mem-sub);
-  margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.mem-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #5adbb5;
-  display: inline-block;
-  flex-shrink: 0;
-}
-
-.mem-dot.off {
-  background: #77809a;
+  margin-top: 1px;
 }
 
 .mem-header-actions {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .mem-close-x {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--mem-line);
   color: var(--mem-sub);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12.5px;
+  font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s ease, color 0.15s ease;
@@ -331,97 +376,202 @@
   color: var(--mem-text);
 }
 
-/* Верхняя плашка отдельных вкладок: События · Отношения · Секреты · Сцена · Хроника */
-.mem-top-tabs {
+/* Наглядная плашка и шкала токенов промпта */
+.mem-token-bar {
+  margin: 0 14px 9px;
+  padding: 7px 10px;
+  border-radius: 11px;
+  background: rgba(9, 12, 22, 0.55);
+  border: 1px solid rgba(162, 190, 255, 0.15);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 5px;
-  padding: 2px 14px 10px;
-  border-bottom: 1px solid var(--mem-line);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+  flex-shrink: 0;
 }
 
-.mem-top-tabs::-webkit-scrollbar {
-  display: none;
+.mem-token-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.25;
+}
+
+.mem-token-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--mem-text);
+  white-space: nowrap;
+}
+
+.mem-token-breakdown {
+  font-size: 10.8px;
+  color: var(--mem-sub);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mem-token-track {
+  width: 100%;
+  height: 3.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.mem-token-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #79b8ff, var(--mem-mint));
+  transition: width 0.25s ease, background 0.25s ease;
+}
+
+.mem-token-fill.warn {
+  background: linear-gradient(90deg, #9bb8ff, var(--mem-gold));
+}
+
+.mem-token-fill.high {
+  background: linear-gradient(90deg, var(--mem-gold), var(--mem-coral));
+}
+
+.mem-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mem-mint);
+  box-shadow: 0 0 6px rgba(92, 224, 184, 0.65);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.mem-dot.off {
+  background: #77809a;
+  box-shadow: none;
+}
+
+/* Стационарная сетка 5×1 вкладок (без прокрутки и прыжков шрифта!) */
+.mem-top-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  padding: 0 12px 9px;
+  border-bottom: 1px solid var(--mem-line);
+  flex-shrink: 0;
 }
 
 .mem-top-tab {
-  padding: 6px 11px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid transparent;
+  position: relative;
+  min-width: 0;
+  padding: 6px 2px 5px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   color: var(--mem-sub);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
   cursor: pointer;
   user-select: none;
-  display: inline-flex;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-}
-
-.mem-top-tab:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--mem-text);
+  justify-content: center;
+  gap: 2px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .mem-top-tab.active {
-  background: rgba(155, 184, 255, 0.2);
-  border-color: rgba(155, 184, 255, 0.45);
+  background: linear-gradient(180deg, rgba(162, 190, 255, 0.2), rgba(162, 190, 255, 0.08));
+  border-color: rgba(162, 190, 255, 0.48);
   color: var(--mem-text);
-  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--mem-gold);
+}
+
+.mem-tab-top {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 18px;
+  line-height: 18px;
+}
+
+.mem-tab-icon {
+  font-size: 13px;
+  line-height: 1;
+  display: inline-block;
 }
 
 .mem-tab-badge {
   font-size: 10.5px;
-  padding: 0 5px;
+  font-weight: 700;
+  line-height: 15px;
+  min-width: 15px;
+  padding: 0 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   color: inherit;
-  opacity: 0.85;
+  text-align: center;
+}
+
+.mem-top-tab.active .mem-tab-badge {
+  background: rgba(255, 217, 125, 0.22);
+  color: var(--mem-gold);
+}
+
+.mem-tab-label {
+  display: block;
+  width: 100%;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  line-height: 13px !important;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px;
+  box-sizing: border-box;
 }
 
 .mem-chip {
-  height: 28px;
-  padding: 0 9px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.05);
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.055);
   border: 1px solid var(--mem-line);
   color: var(--mem-text);
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   white-space: nowrap;
   box-sizing: border-box;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .mem-chip:hover {
-  border-color: rgba(155, 184, 255, 0.45);
-  background: rgba(155, 184, 255, 0.12);
+  border-color: rgba(162, 190, 255, 0.45);
+  background: rgba(162, 190, 255, 0.13);
 }
 
 .mem-chip.accent {
-  background: rgba(155, 184, 255, 0.16);
-  border-color: rgba(155, 184, 255, 0.42);
-  color: #dce7ff;
+  background: linear-gradient(135deg, rgba(140, 175, 255, 0.24), rgba(105, 140, 235, 0.16));
+  border-color: rgba(162, 190, 255, 0.48);
+  color: #e4edff;
 }
 
 .mem-chip.gold {
-  background: rgba(255, 217, 125, 0.18);
-  border-color: rgba(255, 217, 125, 0.52);
-  color: #ffe69e;
-  font-weight: 600;
+  background: linear-gradient(135deg, rgba(255, 217, 125, 0.24), rgba(255, 184, 92, 0.15));
+  border-color: rgba(255, 217, 125, 0.56);
+  color: #ffeaa6;
 }
 
 /* Полоска поиска + кнопка нового факта */
@@ -429,14 +579,15 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 9px 14px;
+  padding: 8px 14px;
   border-bottom: 1px solid rgba(165, 180, 225, 0.1);
+  flex-shrink: 0;
 }
 
 .mem-search-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
 .mem-search-box {
@@ -444,7 +595,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(8, 11, 20, 0.52);
   border: 1px solid var(--mem-line);
   border-radius: 11px;
   padding: 5px 10px;
@@ -452,12 +603,12 @@
 }
 
 .mem-search-box:focus-within {
-  border-color: rgba(155, 184, 255, 0.42);
+  border-color: rgba(162, 190, 255, 0.48);
 }
 
 .mem-search-icon {
-  font-size: 12px;
-  opacity: 0.65;
+  font-size: 12.5px;
+  opacity: 0.7;
   flex-shrink: 0;
 }
 
@@ -468,50 +619,53 @@
   outline: none !important;
   box-shadow: none !important;
   color: var(--mem-text) !important;
-  font-size: 12.5px;
-  padding: 2px 0;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+  padding: 2px 0 !important;
+  margin: 0 !important;
   min-width: 0;
 }
 
 .mem-search-clear {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--mem-sub);
   cursor: pointer;
-  padding: 0 3px;
+  padding: 2px 4px;
 }
 
 .mem-toggle-add-btn {
-  width: 31px;
-  height: 31px;
-  border-radius: 10px;
-  background: rgba(155, 184, 255, 0.14);
-  border: 1px solid rgba(155, 184, 255, 0.3);
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: rgba(162, 190, 255, 0.15);
+  border: 1px solid rgba(162, 190, 255, 0.34);
   color: var(--mem-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 17px;
+  font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
   user-select: none;
 }
 
 .mem-toggle-add-btn.open {
-  background: rgba(255, 217, 125, 0.2);
-  border-color: rgba(255, 217, 125, 0.48);
+  background: rgba(255, 217, 125, 0.22);
+  border-color: rgba(255, 217, 125, 0.52);
   color: var(--mem-gold);
 }
 
-/* Баннер активного Флешбека */
+/* Баннер активного Флешбека в стиле фотокадра */
 .mem-flashback-banner {
-  background: linear-gradient(135deg, rgba(54, 42, 22, 0.78), rgba(32, 28, 44, 0.88));
-  border: 1px solid rgba(255, 217, 125, 0.48);
-  border-radius: 13px;
-  padding: 9px 11px;
+  background: linear-gradient(140deg, rgba(48, 38, 20, 0.85), rgba(24, 27, 44, 0.92));
+  border: 1px solid rgba(255, 217, 125, 0.55);
+  border-radius: 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 236, 179, 0.18);
 }
 
 .mem-fb-head {
@@ -519,16 +673,19 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   color: var(--mem-gold);
 }
 
 .mem-fb-quote {
-  font-size: 12px;
-  line-height: 1.38;
-  color: #f7f4eb;
-  opacity: 0.95;
+  font-size: 12.5px;
+  line-height: 1.42;
+  color: #fbf8f0;
+  padding-left: 8px;
+  border-left: 2px solid rgba(255, 217, 125, 0.65);
 }
 
 .mem-fb-actions {
@@ -540,8 +697,8 @@
 }
 
 .mem-fb-hint {
-  font-size: 10.8px;
-  color: #cbbd9d;
+  font-size: 11px;
+  color: #d2c4a6;
 }
 
 .mem-fb-modes {
@@ -620,12 +777,23 @@
 
 /* Контент панели */
 .mem-sheet-body {
-  padding: 10px 14px 16px;
+  flex: 1;
+  min-height: 180px;
+  padding: 10px 14px 14px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
+}
+
+/* Защита от авто-зума iOS WebKit в Tauri при нажатии на поля ввода */
+@media (max-width: 640px) {
+  #memorize-modal-backdrop input[type="text"],
+  #memorize-modal-backdrop textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* Строка быстрого добавления факта */
@@ -633,17 +801,18 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(155, 184, 255, 0.28);
-  border-radius: 11px;
+  background: rgba(8, 11, 20, 0.55);
+  border: 1px solid rgba(162, 190, 255, 0.34);
+  border-radius: 12px;
   padding: 5px 6px 5px 10px;
 }
 
 .mem-quick-cat-cycle {
   font-size: 11.5px;
-  padding: 3px 7px;
-  border-radius: 7px;
-  background: rgba(155, 184, 255, 0.13);
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(162, 190, 255, 0.14);
   color: #dce7ff;
   cursor: pointer;
   white-space: nowrap;
@@ -658,83 +827,89 @@
   outline: none !important;
   box-shadow: none !important;
   color: var(--mem-text) !important;
-  font-size: 12.5px;
+  font-size: 13px;
   padding: 4px 0;
+  margin: 0 !important;
   min-width: 0;
 }
 
 .mem-quick-add-btn {
-  padding: 4px 10px;
-  height: 26px;
+  padding: 4px 11px;
+  height: 28px;
   border-radius: 8px;
-  background: rgba(155, 184, 255, 0.22);
+  background: rgba(162, 190, 255, 0.24);
   color: var(--mem-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
   flex-shrink: 0;
 }
 
-/* Чистый список фактов с кликом для Флешбека */
+/* Карточки фактов (Ночное стекло + раскрывающееся меню редких действий ⋯) */
 .mem-clean-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .mem-subhint {
   font-size: 11px;
   color: var(--mem-sub);
-  opacity: 0.8;
+  opacity: 0.85;
   padding: 0 2px;
 }
 
 .mem-fact-row {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 10px;
-  border-radius: 12px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 11px;
+  border-radius: 13px;
   background: var(--mem-elevated);
-  border: 1px solid transparent;
+  border: 1px solid rgba(168, 188, 238, 0.1);
   transition: border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
+.mem-fact-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .mem-fact-row.locked {
-  border-color: rgba(155, 184, 255, 0.24);
+  border-color: rgba(162, 190, 255, 0.32);
 }
 
 .mem-fact-row.flashback-armed {
-  background: linear-gradient(135deg, rgba(58, 45, 22, 0.65), rgba(32, 36, 56, 0.85));
-  border-color: rgba(255, 217, 125, 0.62);
-  box-shadow: 0 0 12px rgba(255, 217, 125, 0.15);
+  background: linear-gradient(135deg, rgba(58, 45, 22, 0.68), rgba(28, 32, 52, 0.88));
+  border-color: rgba(255, 217, 125, 0.65);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.26), inset 0 0 0 1px rgba(255, 217, 125, 0.15);
 }
 
 .mem-fact-row.muted {
-  opacity: 0.42;
+  opacity: 0.44;
 }
 
 .mem-cat-badge {
-  font-size: 12.5px;
-  line-height: 1.35;
-  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.4;
   flex-shrink: 0;
-  padding-top: 1px;
   user-select: none;
-  opacity: 0.88;
+  opacity: 0.9;
 }
 
 .mem-fact-text-view {
   flex: 1;
   min-width: 0;
   color: var(--mem-text);
-  font-size: 12.6px;
-  line-height: 1.44;
+  font-size: 13px;
+  line-height: 1.45;
   cursor: pointer;
   word-break: break-word;
+  padding-top: 1px;
 }
 
 .mem-fact-text-view:active {
@@ -751,15 +926,15 @@
 .mem-fact-edit {
   flex: 1;
   min-width: 0;
-  background: rgba(0, 0, 0, 0.22) !important;
-  border: 1px solid rgba(155, 184, 255, 0.35) !important;
-  border-radius: 7px !important;
+  background: rgba(6, 8, 16, 0.45) !important;
+  border: 1px solid rgba(162, 190, 255, 0.4) !important;
+  border-radius: 8px !important;
   outline: none !important;
   box-shadow: none !important;
   color: var(--mem-text) !important;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.42;
-  padding: 4px 6px;
+  padding: 5px 7px;
   margin: 0;
   resize: none;
   overflow: hidden;
@@ -769,46 +944,89 @@
 .mem-row-tools {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
 .mem-mini-act {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--mem-sub);
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.mem-mini-act:hover {
-  background: rgba(255, 255, 255, 0.08);
+.mem-mini-act:hover,
+.mem-mini-act.open {
+  background: rgba(162, 190, 255, 0.14);
+  border-color: rgba(162, 190, 255, 0.3);
   color: var(--mem-text);
 }
 
 .mem-mini-act.pinned {
   color: var(--mem-gold);
+  background: rgba(255, 217, 125, 0.12);
+  border-color: rgba(255, 217, 125, 0.3);
 }
 
-/* Вкладка Хроника (Долгосрочный канон + Главы чата) */
+/* Раскрывающаяся панель редких действий под ⋯ */
+.mem-card-drawer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px solid rgba(168, 188, 238, 0.1);
+}
+
+.mem-drawer-btn {
+  flex: 1;
+  min-width: 68px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dce4fb;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.mem-drawer-btn.danger {
+  color: #ff9d9d;
+  background: rgba(255, 107, 107, 0.08);
+  border-color: rgba(255, 107, 107, 0.22);
+}
+
+/* Вкладка Хроника (Долгосрочный канон + Нить таймлайна кадров) */
 .mem-canon-card {
-  background: var(--mem-elevated);
-  border: 1px solid var(--mem-line);
-  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(28, 34, 54, 0.84), rgba(20, 24, 38, 0.88));
+  border: 1px solid rgba(162, 190, 255, 0.24);
+  border-radius: 13px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .mem-section-label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--mem-accent);
@@ -825,21 +1043,65 @@
   outline: none !important;
   box-shadow: none !important;
   color: var(--mem-text) !important;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.45;
   resize: vertical;
   padding: 0;
   font-family: inherit;
 }
 
-.mem-chapter-item {
-  padding: 9px 11px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.03);
-  border-left: 2.5px solid rgba(155, 184, 255, 0.45);
+/* Вертикальная нить времени кадров (Mix 2) */
+.mem-timeline {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 9px;
+  padding-left: 15px;
+}
+
+.mem-timeline::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  bottom: 10px;
+  width: 1.5px;
+  background: linear-gradient(180deg, rgba(162, 190, 255, 0.55), rgba(255, 217, 125, 0.45));
+  border-radius: 999px;
+}
+
+.mem-chapter-item {
+  position: relative;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: rgba(25, 30, 47, 0.72);
+  border: 1px solid rgba(168, 188, 238, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mem-chapter-item::before {
+  content: "";
+  position: absolute;
+  left: -13.5px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9bb8ff;
+  border: 2px solid #121624;
+  box-shadow: 0 0 6px rgba(155, 184, 255, 0.75);
+}
+
+.mem-chapter-item.flashback-armed {
+  border-color: rgba(255, 217, 125, 0.6);
+  background: linear-gradient(135deg, rgba(54, 42, 22, 0.65), rgba(25, 30, 47, 0.85));
+}
+
+.mem-chapter-item.flashback-armed::before {
+  background: var(--mem-gold);
+  box-shadow: 0 0 8px rgba(255, 217, 125, 0.9);
 }
 
 .mem-chapter-meta {
@@ -847,27 +1109,67 @@
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
-  color: var(--mem-sub);
+  font-weight: 600;
+  color: var(--mem-gold);
 }
 
 .mem-preview-box {
-  margin-top: 4px;
+  margin-top: 2px;
   padding: 9px 11px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.28);
+  border-radius: 11px;
+  background: rgba(6, 8, 15, 0.55);
   border: 1px dashed var(--mem-line);
   font-size: 11.5px;
-  line-height: 1.4;
+  line-height: 1.42;
   color: var(--mem-sub);
   white-space: pre-wrap;
 }
 
 .mem-empty-hint {
   text-align: center;
-  padding: 22px 12px;
+  padding: 24px 12px;
   color: var(--mem-sub);
   font-size: 12.5px;
-  line-height: 1.45;
+  line-height: 1.48;
+}
+
+/* Нижняя сервисная панель редких действий (с отступом под полоску iPhone) */
+.mem-sheet-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--mem-line);
+  background: rgba(10, 12, 21, 0.62);
+  flex-shrink: 0;
+}
+
+.mem-footer-btn {
+  flex: 1;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: var(--mem-sub);
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+
+.mem-footer-btn:hover,
+.mem-footer-btn.active {
+  background: rgba(162, 190, 255, 0.14);
+  border-color: rgba(162, 190, 255, 0.34);
+  color: var(--mem-text);
 }
 
 /* === 3. Скроллируемый авто-список моделей в настройках API === */
