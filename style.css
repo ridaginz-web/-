@@ -1,4 +1,4 @@
-/* === Memorize v1.4.1: Top Category Tabs, Mochi Chibis & Flashbacks === */
+/* === Memorize v1.5.0: Top Category Tabs, Living Mochi Chibis, 3-Mode Flashbacks & Season Transfer === */
 #memorize-chibi-widget,
 #memorize-modal-backdrop,
 #memorize-settings-panel {
@@ -34,6 +34,58 @@
 
 #memorize-chibi-widget.mem-hidden {
   display: none !important;
+}
+
+#memorize-chibi-widget.mem-typing-dim {
+  opacity: 0.38;
+}
+
+#memorize-chibi-widget.mem-typing-dim:hover,
+#memorize-chibi-widget.mem-typing-dim:active {
+  opacity: 1;
+}
+
+/* Живое асинхронное моргание глаз моти-чибиков */
+.mem-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mem-eyes-lg {
+  animation: mem-chibi-blink 6.8s ease-in-out infinite;
+}
+
+.mem-eyes-cxs {
+  animation: mem-chibi-blink 5.9s ease-in-out 1.7s infinite;
+}
+
+@keyframes mem-chibi-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  96.5% { transform: scaleY(0.08); }
+}
+
+/* Свечение часов Лу Гуана и объектива Чэн Сяоши при заряженном Флешбеке */
+#memorize-chibi-widget.mem-fb-armed .mem-watch-face {
+  fill: #fff0a6;
+  filter: drop-shadow(0 0 3px rgba(255, 217, 125, 0.95));
+}
+
+#memorize-chibi-widget.mem-fb-armed .mem-camera-lens {
+  fill: #ffe28a;
+}
+
+/* Эффект тёплой фотовспышки затвора */
+.mem-shutter-flash {
+  animation: mem-shutter-pop 0.55s ease-out;
+}
+
+@keyframes mem-shutter-pop {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 232, 165, 0.85), inset 0 0 28px rgba(255, 232, 165, 0.45);
+  }
+  100% {
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), inset 0 0 0 rgba(255, 232, 165, 0);
+  }
 }
 
 .mem-mascot-wrap {
@@ -91,25 +143,27 @@
   to { transform: translateY(-4px) scale(1.05); }
 }
 
-/* Круглый мини-бейдж счётчика в правом нижнем углу маскота */
+/* Круглый мини-бейдж счётчика с золотым колечком прогресса до авто-выжимки */
 .mem-corner-badge {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
-  min-width: 19px;
-  height: 19px;
+  right: -3px;
+  bottom: -3px;
+  min-width: 21px;
+  height: 21px;
   padding: 0 5px;
   border-radius: 999px;
-  background: rgba(24, 27, 44, 0.94);
-  border: 1.4px solid rgba(168, 186, 255, 0.55);
+  border: 2px solid transparent;
+  background:
+    linear-gradient(rgba(22, 25, 42, 0.96), rgba(22, 25, 42, 0.96)) padding-box,
+    conic-gradient(var(--mem-gold) var(--mem-prog, 0%), rgba(168, 186, 255, 0.34) 0) border-box;
   color: #dbe5ff;
   font-size: 10.5px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 17px;
   text-align: center;
   box-sizing: border-box;
   pointer-events: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
 /* Значок заряженного флешбека на маскоте */
@@ -488,6 +542,80 @@
 .mem-fb-hint {
   font-size: 10.8px;
   color: #cbbd9d;
+}
+
+.mem-fb-modes {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.mem-fb-mode-pill {
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #d9d2c5;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.mem-fb-mode-pill:hover {
+  background: rgba(255, 217, 125, 0.14);
+}
+
+.mem-fb-mode-pill.active {
+  background: rgba(255, 217, 125, 0.24);
+  border-color: rgba(255, 217, 125, 0.62);
+  color: #ffe9a8;
+  font-weight: 600;
+}
+
+/* Метка свежего факта после выжимки */
+.mem-new-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-size: 9.8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: #ffe7a0;
+  background: rgba(255, 217, 125, 0.18);
+  border: 1px solid rgba(255, 217, 125, 0.42);
+}
+
+/* Компактная шторка переноса памяти между чатами (Экспорт / Импорт) */
+.mem-transfer-box {
+  background: rgba(22, 26, 42, 0.92);
+  border: 1px solid rgba(155, 184, 255, 0.34);
+  border-radius: 13px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mem-transfer-textarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 130px;
+  background: rgba(8, 10, 18, 0.62) !important;
+  border: 1px solid var(--mem-line) !important;
+  border-radius: 8px !important;
+  color: var(--mem-text) !important;
+  font-size: 11.5px;
+  line-height: 1.38;
+  padding: 6px 8px;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 /* Контент панели */

@@ -14,7 +14,7 @@ function getLuGuangMochiGroup() {
     <!-- Пухлое моти-тельце с полосатым животиком и часами -->
     <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#eef4ff" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
     <ellipse cx="40" cy="59.5" rx="9.5" ry="7.8" fill="#c7dcff"/>
-    <circle cx="40" cy="59.5" r="4.2" fill="#ffe184" stroke="#241e32" stroke-width="2"/>
+    <circle class="mem-watch-face" cx="40" cy="59.5" r="4.2" fill="#ffe184" stroke="#241e32" stroke-width="2"/>
     <path d="M40 57.5 V59.6 L41.5 60.6" stroke="#5c4018" stroke-width="1.4" stroke-linecap="round" fill="none"/>
 
     <!-- Круглые лапки -->
@@ -32,14 +32,16 @@ function getLuGuangMochiGroup() {
     <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff9ebb" opacity="0.82"/>
 
     <!-- Большие блестящие глаза-бусинки -->
-    <ellipse cx="29.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
-    <ellipse cx="50.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
-    <ellipse class="mem-eye-glow" cx="29.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
-    <ellipse class="mem-eye-glow" cx="50.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
-    <circle cx="27.8" cy="38" r="1.8" fill="#ffffff"/>
-    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
-    <circle cx="48.8" cy="38" r="1.8" fill="#ffffff"/>
-    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    <g class="mem-eyes mem-eyes-lg">
+      <ellipse cx="29.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
+      <ellipse cx="50.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
+      <ellipse class="mem-eye-glow" cx="29.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
+      <ellipse class="mem-eye-glow" cx="50.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
+      <circle cx="27.8" cy="38" r="1.8" fill="#ffffff"/>
+      <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
+      <circle cx="48.8" cy="38" r="1.8" fill="#ffffff"/>
+      <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    </g>
 
     <!-- Милый кошачий ротик ω -->
     <path d="M37 44 Q38.5 45.8 40 44.1 Q41.5 45.8 43 44" fill="none" stroke="#241e32" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
@@ -60,7 +62,7 @@ function getChengXiaoshiMochiGroup() {
     <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#3b374f" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
     <ellipse cx="40" cy="59.5" rx="9.2" ry="7.6" fill="#fff6f0"/>
     <rect x="34.2" y="55.2" width="11.6" height="8.2" rx="2.6" fill="#526080" stroke="#241e32" stroke-width="1.9"/>
-    <circle cx="40" cy="59.3" r="2.3" fill="#9bc2ff"/>
+    <circle class="mem-camera-lens" cx="40" cy="59.3" r="2.3" fill="#9bc2ff"/>
 
     <!-- Круглые лапки -->
     <ellipse cx="26" cy="57.5" rx="4.5" ry="3.4" transform="rotate(20 26 57.5)" fill="#fff2e8" stroke="#241e32" stroke-width="2.4"/>
@@ -78,20 +80,21 @@ function getChengXiaoshiMochiGroup() {
     <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff94b2" opacity="0.86"/>
 
     <!-- Сияющие тёпло-янтарные глазки -->
-    <ellipse cx="29.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
-    <ellipse cx="50.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
-    <ellipse class="mem-eye-glow" cx="29.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
-    <ellipse class="mem-eye-glow" cx="50.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
-    <circle cx="27.7" cy="37.9" r="1.85" fill="#ffffff"/>
-    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
-    <circle cx="48.7" cy="37.9" r="1.85" fill="#ffffff"/>
-    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    <g class="mem-eyes mem-eyes-cxs">
+      <ellipse cx="29.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
+      <ellipse cx="50.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
+      <ellipse class="mem-eye-glow" cx="29.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
+      <ellipse class="mem-eye-glow" cx="50.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
+      <circle cx="27.7" cy="37.9" r="1.85" fill="#ffffff"/>
+      <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
+      <circle cx="48.7" cy="37.9" r="1.85" fill="#ffffff"/>
+      <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
+    </g>
 
     <!-- Радостная улыбка -->
     <path d="M36.8 43.2 Q40 47.2 43.2 43.2 Z" fill="#ff8da6" stroke="#241e32" stroke-width="2" stroke-linejoin="round"/>
   `;
 }
-
 
 export function getMascotSVG(mode = 'duo') {
   if (mode === 'lg') {
