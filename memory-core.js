@@ -353,6 +353,52 @@ ${modeInstruction}
 Сохраняй характер {{char}} и не ломай ход ролевой.`;
 }
 
+export function getPromptTokenStats() {
+  const settings = getSettings();
+  const store = getChatStore();
+  const depth = Math.max(0, toFiniteNumber(settings.injectionDepth, 2));
+
+  if (!settings.enabled) {
+    return {
+      enabled: false,
+      totalTokens: 0,
+      canonTokens: 0,
+      chaptersTokens: 0,
+      factsTokens: 0,
+      flashbackTokens: 0,
+      depth,
+    };
+  }
+
+  const canon = (store.coreCanon || '').trim();
+  const activeChapters = store.chapters.filter((c) => c.text?.trim());
+  const activeFacts = store.facts.filter((f) => f.enabled !== false && f.text?.trim());
+
+  const canonTokens = canon ? estimateTokens(canon) : 0;
+  const chaptersTokens = activeChapters.length
+    ? estimateTokens(activeChapters.map((c) => `• [${c.range || 'Сцена'}] ${c.text.trim()}`).join('\n'))
+    : 0;
+  const factsTokens = activeFacts.length
+    ? estimateTokens(activeFacts.map((f) => `- ${f.text.trim()}`).join('\n'))
+    : 0;
+
+  const mainPrompt = buildPromptText();
+  const fbPrompt = buildFlashbackPrompt();
+  const mainTokens = mainPrompt ? estimateTokens(mainPrompt) : 0;
+  const flashbackTokens = fbPrompt ? estimateTokens(fbPrompt) : 0;
+
+  return {
+    enabled: true,
+    totalTokens: mainTokens + flashbackTokens,
+    mainTokens,
+    canonTokens,
+    chaptersTokens,
+    factsTokens,
+    flashbackTokens,
+    depth,
+  };
+}
+
 export function updateInjection() {
   const ctx = getST();
   if (!ctx?.setExtensionPrompt) return;
