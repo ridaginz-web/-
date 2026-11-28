@@ -173,7 +173,8 @@ export function getSettings() {
       s.injectionTemplate = DEFAULT_INJECTION_TEMPLATE;
     }
     s.schemaVersion = 4;
-    ctx.saveSettingsDebounced?.();\n  }
+    ctx.saveSettingsDebounced?.();
+  }
   return s;
 }
 
