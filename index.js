@@ -7,9 +7,9 @@ import {
   buildPromptText,
   createSnapshot,
   escapeHtml,
-  estimateTokens,
   exportMemoryPack,
   getChatStore,
+  getPromptTokenStats,
   getST,
   getSettings,
   highlightMatch,
@@ -31,11 +31,20 @@ let searchQuery = '';
 let quickAddOpen = false;
 let quickAddCat = 'events';
 let editingFactId = null;
+let openMenuFactId = null;
 let showPromptPreview = false;
 let transferOpen = false;
 let lastFlashbackMode = 'thought';
 let bubbleTimer = null;
 let eventsBound = false;
+
+const TAB_ITEMS = [
+  { key: 'events', icon: '⏳', short: 'События' },
+  { key: 'relations', icon: '💞', short: 'Отнош.' },
+  { key: 'secrets', icon: '🗝', short: 'Секреты' },
+  { key: 'scene', icon: '📍', short: 'Сцена' },
+  { key: 'chronicle', icon: '📖', short: 'Хроника' },
+];
 
 function playShutterFlash() {
   const sheet = document.querySelector('#memorize-modal-backdrop .mem-sheet');
@@ -262,42 +271,62 @@ function autoResizeTextarea(el) {
 function createModal() {
   if (document.getElementById('memorize-modal-backdrop')) return;
 
+  const tabsStaticHtml = TAB_ITEMS.map(
+    (t) => `
+      <div class="mem-top-tab" data-tab="${t.key}">
+        <div class="mem-tab-top">
+          <span class="mem-tab-icon">${t.icon}</span>
+          <span id="mem-tab-count-${t.key}" class="mem-tab-badge">0</span>
+        </div>
+        <span class="mem-tab-label">${escapeHtml(t.short)}</span>
+      </div>`
+  ).join('');
+
   const backdrop = document.createElement('div');
   backdrop.id = 'memorize-modal-backdrop';
   backdrop.innerHTML = `
-    <div class="mem-sheet" role="dialog" aria-modal="true">
+    <div id="mem-sheet-card" class="mem-sheet" role="dialog" aria-modal="true">
+      <div id="mem-sheet-drag-handle" class="mem-sheet-handle-area" title="Потяните вниз, чтобы закрыть">
+        <div class="mem-sheet-handle"></div>
+      </div>
+
       <div class="mem-sheet-header">
         <div class="mem-header-left">
-          <div id="mem-mini-mascot-tap" style="width:32px;height:32px;cursor:pointer;flex-shrink:0;" title="Погладить маскота">${getMascotSVG('lg')}</div>
+          <div id="mem-mini-mascot-tap" style="width:34px;height:34px;cursor:pointer;flex-shrink:0;" title="Погладить маскота">${getMascotSVG('lg')}</div>
           <div class="mem-header-title">
             <strong>Память чата</strong>
-            <div id="mem-prompt-status" class="mem-prompt-pill"></div>
+            <div id="mem-header-sub" class="mem-header-sub">Фотостудия «Время» · тап по факту для флешбека</div>
           </div>
         </div>
         <div class="mem-header-actions">
           <div id="mem-run-extract" class="mem-chip accent" title="Сжать новые сообщения сейчас">✨ Сжать</div>
-          <div id="mem-transfer-btn" class="mem-chip" title="Перенести память в другой чат (Экспорт / Импорт)">📦</div>
-          <div id="mem-rollback-btn" class="mem-chip" title="Откат Лу Гуана к прошлому снимку">⏪</div>
-          <div id="mem-clear-all" class="mem-chip" title="Очистить память этого чата">🗑</div>
           <div id="mem-close-modal" class="mem-close-x" title="Закрыть">✕</div>
           <input id="mem-import-file" type="file" accept=".json,application/json" style="display:none;" />
         </div>
       </div>
 
-      <div id="mem-top-tabs" class="mem-top-tabs"></div>
+      <div id="mem-token-bar" class="mem-token-bar"></div>
+
+      <div id="mem-top-tabs" class="mem-top-tabs">${tabsStaticHtml}</div>
 
       <div class="mem-top-controls">
         <div class="mem-search-row">
           <div class="mem-search-box">
             <span class="mem-search-icon">🔍</span>
-            <input id="mem-search-input" type="text" placeholder="Поиск по всем вкладкам (для флешбека)..." />
+            <input id="mem-search-input" type="text" placeholder="Поиск по всем вкладкам..." />
             <span id="mem-search-clear" class="mem-search-clear" style="display:none;" title="Очистить поиск">✕</span>
           </div>
-          <div id="mem-toggle-add" class="mem-toggle-add-btn" title="Добавить факт в текущую вкладку">+</div>
+          <div id="mem-toggle-add" class="mem-toggle-add-btn" title="Добавить факт вручную">+</div>
         </div>
       </div>
 
       <div id="mem-sheet-body" class="mem-sheet-body"></div>
+
+      <div class="mem-sheet-footer">
+        <div id="mem-transfer-btn" class="mem-footer-btn" title="Экспорт / Импорт слепка памяти">📦 Перенос</div>
+        <div id="mem-rollback-btn" class="mem-footer-btn" title="Вернуть прошлый снимок памяти">⏪ Откат</div>
+        <div id="mem-clear-all" class="mem-footer-btn" title="Очистить память только этого чата">🗑 Очистить</div>
+      </div>
     </div>
   `;
 
@@ -305,6 +334,48 @@ function createModal() {
 
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeModal();
+  });
+
+  // Свайп шторки вниз за ручку + стационарные вкладки без прыжков DOM
+  const handleEl = document.getElementById('mem-sheet-drag-handle');
+  const sheetCard = document.getElementById('mem-sheet-card');
+  let sheetDragY = null;
+  handleEl?.addEventListener('pointerdown', (e) => {
+    sheetDragY = e.clientY;
+    handleEl.setPointerCapture?.(e.pointerId);
+  });
+  handleEl?.addEventListener('pointermove', (e) => {
+    if (sheetDragY === null || !sheetCard) return;
+    const dy = Math.max(0, e.clientY - sheetDragY);
+    sheetCard.style.transform = dy > 0 ? `translateY(${Math.round(dy * 0.75)}px)` : '';
+  });
+  handleEl?.addEventListener('pointerup', (e) => {
+    if (sheetDragY === null || !sheetCard) return;
+    const dy = e.clientY - sheetDragY;
+    sheetDragY = null;
+    sheetCard.style.transform = '';
+    handleEl.releasePointerCapture?.(e.pointerId);
+    if (dy > 68) closeModal();
+  });
+  handleEl?.addEventListener('pointercancel', () => {
+    sheetDragY = null;
+    if (sheetCard) sheetCard.style.transform = '';
+  });
+
+  document.querySelectorAll('#mem-top-tabs .mem-top-tab').forEach((tabEl) => {
+    tabEl.addEventListener('click', () => {
+      activeTopTab = tabEl.dataset.tab || 'events';
+      openMenuFactId = null;
+      if (CATEGORY_KEYS.includes(activeTopTab)) quickAddCat = activeTopTab;
+      if (searchQuery) {
+        searchQuery = '';
+        const inp = document.getElementById('mem-search-input');
+        const clr = document.getElementById('mem-search-clear');
+        if (inp) inp.value = '';
+        if (clr) clr.style.display = 'none';
+      }
+      renderModalContent();
+    });
   });
 
   document.getElementById('mem-close-modal').addEventListener('click', closeModal);
@@ -332,8 +403,8 @@ function createModal() {
 
   document.getElementById('mem-mini-mascot-tap').addEventListener('click', () => {
     const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-    const status = document.getElementById('mem-prompt-status');
-    if (status) status.textContent = q;
+    const sub = document.getElementById('mem-header-sub');
+    if (sub) sub.textContent = q;
   });
 
   document.getElementById('mem-clear-all').addEventListener('click', async () => {
@@ -406,6 +477,7 @@ function openModal() {
 
 function closeModal() {
   editingFactId = null;
+  openMenuFactId = null;
   transferOpen = false;
   document.getElementById('memorize-modal-backdrop')?.classList.remove('open');
 }
@@ -545,66 +617,65 @@ function renderModalContent() {
   if (!backdrop) return;
 
   const store = getChatStore();
-  const settings = getSettings();
   const promptText = buildPromptText();
-  const tokens = estimateTokens(promptText);
+  const stats = getPromptTokenStats();
   const qLower = searchQuery.trim().toLowerCase();
 
-  const statusEl = document.getElementById('mem-prompt-status');
-  if (statusEl) {
-    if (settings.enabled && promptText) {
-      statusEl.innerHTML = `<span class="mem-dot"></span><span>В промпте · ~${tokens} ток. (глубина ${settings.injectionDepth})</span>`;
-    } else if (!settings.enabled) {
-      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Память выключена</span>`;
+  // Наглядная плашка и шкала инжектируемых в промпт токенов
+  const tokenBar = document.getElementById('mem-token-bar');
+  if (tokenBar) {
+    if (!stats.enabled) {
+      tokenBar.innerHTML = `
+        <div class="mem-token-row">
+          <span class="mem-token-main"><span class="mem-dot off"></span>Память выключена</span>
+          <span class="mem-token-breakdown">0 ток.</span>
+        </div>
+        <div class="mem-token-track"><div class="mem-token-fill" style="width:0%"></div></div>`;
+    } else if (stats.totalTokens === 0) {
+      tokenBar.innerHTML = `
+        <div class="mem-token-row">
+          <span class="mem-token-main"><span class="mem-dot off"></span>В промпте: 0 ток.</span>
+          <span class="mem-token-breakdown">Нажмите «✨ Сжать» для первой выжимки</span>
+        </div>
+        <div class="mem-token-track"><div class="mem-token-fill" style="width:0%"></div></div>`;
     } else {
-      statusEl.innerHTML = `<span class="mem-dot off"></span><span>Пусто — нажмите «✨ Сжать»</span>`;
+      const fillPct = Math.min(100, Math.max(4, Math.round((stats.totalTokens / 1400) * 100)));
+      const lvl = stats.totalTokens >= 1100 ? 'high' : stats.totalTokens >= 650 ? 'warn' : '';
+      const parts = [];
+      if (stats.canonTokens) parts.push(`Канон ${stats.canonTokens}`);
+      if (stats.chaptersTokens) parts.push(`Гл. ${stats.chaptersTokens}`);
+      if (stats.factsTokens) parts.push(`Факты ${stats.factsTokens}`);
+      if (stats.flashbackTokens) parts.push(`📸+${stats.flashbackTokens}`);
+      parts.push(`Глуб. ${stats.depth}`);
+      tokenBar.innerHTML = `
+        <div class="mem-token-row">
+          <span class="mem-token-main"><span class="mem-dot"></span>В промпте: ~${stats.totalTokens} ток.</span>
+          <span class="mem-token-breakdown">${escapeHtml(parts.join(' · '))}</span>
+        </div>
+        <div class="mem-token-track"><div class="mem-token-fill ${lvl}" style="width:${fillPct}%"></div></div>`;
     }
   }
 
-  // Верхняя плашка отдельных вкладок: События · Отношения · Секреты · Сцена · Хроника
-  const topTabsBar = document.getElementById('mem-top-tabs');
-  if (topTabsBar) {
-    const chronCount = store.chapters.length + (store.coreCanon?.trim() ? 1 : 0);
-    const tabs = [
-      ...CATEGORY_KEYS.map((k) => ({
-        key: k,
-        label: `${CATEGORIES[k].icon} ${CATEGORIES[k].label}`,
-        count: store.facts.filter((f) => normalizeCategory(f.category, f.text) === k).length,
-      })),
-      {
-        key: 'chronicle',
-        label: '📖 Хроника',
-        count: chronCount,
-      },
-    ];
-
-    topTabsBar.innerHTML = tabs
-      .map(
-        (t) => `
-        <div class="mem-top-tab ${!qLower && activeTopTab === t.key ? 'active' : ''}" data-tab="${t.key}">
-          <span>${escapeHtml(t.label)}</span>
-          <span class="mem-tab-badge">${t.count}</span>
-        </div>`
-      )
-      .join('');
-
-    topTabsBar.querySelectorAll('.mem-top-tab').forEach((tabEl) => {
-      tabEl.addEventListener('click', () => {
-        activeTopTab = tabEl.dataset.tab || 'events';
-        if (CATEGORY_KEYS.includes(activeTopTab)) {
-          quickAddCat = activeTopTab;
-        }
-        if (searchQuery) {
-          searchQuery = '';
-          const inp = document.getElementById('mem-search-input');
-          const clr = document.getElementById('mem-search-clear');
-          if (inp) inp.value = '';
-          if (clr) clr.style.display = 'none';
-        }
-        renderModalContent();
-      });
-    });
+  // Точечное обновление стационарных 5 вкладок без пересоздания DOM
+  const countsMap = {
+    events: 0,
+    relations: 0,
+    secrets: 0,
+    scene: 0,
+    chronicle: store.chapters.length + (store.coreCanon?.trim() ? 1 : 0),
+  };
+  for (const f of store.facts) {
+    const k = normalizeCategory(f.category, f.text);
+    if (countsMap[k] !== undefined) countsMap[k]++;
   }
+  document.querySelectorAll('#mem-top-tabs .mem-top-tab').forEach((tabEl) => {
+    const k = tabEl.dataset.tab;
+    tabEl.classList.toggle('active', !qLower && activeTopTab === k);
+    const badgeEl = document.getElementById(`mem-tab-count-${k}`);
+    if (badgeEl && countsMap[k] !== undefined) badgeEl.textContent = String(countsMap[k]);
+  });
+
+  document.getElementById('mem-transfer-btn')?.classList.toggle('active', transferOpen);
 
   const addToggleBtn = document.getElementById('mem-toggle-add');
   if (addToggleBtn) {
@@ -653,32 +724,39 @@ function renderModalContent() {
               const catMeta = CATEGORIES[catKey] || CATEGORIES.events;
               const isArmed = store.activeFlashback?.id === f.id;
               const isEditing = editingFactId === f.id;
+              const isMenuOpen = openMenuFactId === f.id && !isEditing;
 
               return `
               <div class="mem-fact-row ${f.locked ? 'locked' : ''} ${f.enabled === false ? 'muted' : ''} ${
                 isArmed ? 'flashback-armed' : ''
               }" data-id="${escapeHtml(f.id)}">
-                <span class="mem-cat-badge" title="${escapeHtml(catMeta.full)} (нажми, чтобы перенести в другую вкладку)">${
-                catMeta.icon
-              }</span>
-                ${
-                  isEditing
-                    ? `<textarea rows="1" class="mem-fact-edit">${escapeHtml(f.text)}</textarea>`
-                    : `<div class="mem-fact-text-view" title="Нажми, чтобы персонаж вспомнил этот момент">${highlightMatch(
-                        f.text,
-                        searchQuery
-                      )}${f.isNew ? '<span class="mem-new-tag">new</span>' : ''}</div>`
-                }
-                <div class="mem-row-tools">
-                  <span class="mem-mini-act act-edit" title="Редактировать">✎</span>
-                  <span class="mem-mini-act act-pin ${f.locked ? 'pinned' : ''}" title="Закрепить от перезаписи">${
+                <div class="mem-fact-main">
+                  <span class="mem-cat-badge" title="${escapeHtml(catMeta.full)}">${catMeta.icon}</span>
+                  ${
+                    isEditing
+                      ? `<textarea rows="1" class="mem-fact-edit">${escapeHtml(f.text)}</textarea>`
+                      : `<div class="mem-fact-text-view" title="Нажми, чтобы персонаж вспомнил этот момент">${highlightMatch(
+                          f.text,
+                          searchQuery
+                        )}${f.isNew ? '<span class="mem-new-tag">new</span>' : ''}</div>`
+                  }
+                  <div class="mem-row-tools">
+                    <span class="mem-mini-act act-pin ${f.locked ? 'pinned' : ''}" title="Закрепить от перезаписи">${
                 f.locked ? '📌' : '📍'
               }</span>
-                  <span class="mem-mini-act act-mute" title="Вкл/выкл в промпте">${
-                    f.enabled === false ? '🙈' : '👁'
-                  }</span>
-                  <span class="mem-mini-act act-del" title="Удалить">✕</span>
+                    <span class="mem-mini-act act-more ${isMenuOpen ? 'open' : ''}" title="Ещё действия">⋯</span>
+                  </div>
                 </div>
+                ${
+                  isMenuOpen
+                    ? `<div class="mem-card-drawer">
+                        <span class="mem-drawer-btn act-edit">✎ Изменить</span>
+                        <span class="mem-drawer-btn act-move">⇄ Рубрика</span>
+                        <span class="mem-drawer-btn act-mute">${f.enabled === false ? '👁 Включить' : '🙈 Скрыть'}</span>
+                        <span class="mem-drawer-btn danger act-del">🗑 Удалить</span>
+                      </div>`
+                    : ''
+                }
               </div>`;
             })
             .join('') +
@@ -782,13 +860,33 @@ function renderModalContent() {
         row.querySelector('.mem-cat-badge')?.addEventListener('mousedown', (e) => e.preventDefault());
       }
 
+      row.querySelector('.act-more')?.addEventListener('click', async () => {
+        if (editingFactId === fact.id && commitEdit) {
+          await commitEdit();
+          return;
+        }
+        openMenuFactId = openMenuFactId === fact.id ? null : fact.id;
+        renderModalContent();
+      });
+
       row.querySelector('.act-edit')?.addEventListener('click', async () => {
+        openMenuFactId = null;
         if (editingFactId === fact.id && commitEdit) {
           await commitEdit();
           return;
         }
         editingFactId = editingFactId === fact.id ? null : fact.id;
         renderModalContent();
+      });
+
+      row.querySelector('.act-move')?.addEventListener('click', async () => {
+        const cur = normalizeCategory(fact.category, fact.text);
+        const nextCat = CATEGORY_KEYS[(CATEGORY_KEYS.indexOf(cur) + 1) % CATEGORY_KEYS.length];
+        fact.category = nextCat;
+        openMenuFactId = null;
+        await saveChatStore();
+        renderModalContent();
+        showBubble(`Перенесено в «${CATEGORIES[nextCat].label}» ${CATEGORIES[nextCat].icon}`, 2200);
       });
 
       row.querySelector('.act-pin')?.addEventListener('click', async () => {
@@ -807,12 +905,14 @@ function renderModalContent() {
           if (nextText) fact.text = nextText;
         }
         fact.enabled = fact.enabled === false;
+        openMenuFactId = null;
         await saveChatStore();
         renderModalContent();
       });
 
       row.querySelector('.act-del')?.addEventListener('click', async () => {
         if (editingFactId === fact.id) editingFactId = null;
+        if (openMenuFactId === fact.id) openMenuFactId = null;
         if (store.activeFlashback?.id === fact.id) store.activeFlashback = null;
         store.facts = store.facts.filter((x) => x.id !== id);
         await saveChatStore();
@@ -822,23 +922,22 @@ function renderModalContent() {
     return;
   }
 
-  // Вкладка «📖 Хроника»
+  // Вкладка «📖 Хроника» (Дневник кадров с вертикальной нитью таймлайна)
   const chaptersHtml =
     store.chapters.length === 0
-      ? `<div class="mem-empty-hint" style="padding:12px;">Главы появятся автоматически по мере продвижения ролевой ✨</div>`
-      : store.chapters
+      ? `<div class="mem-empty-hint" style="padding:14px;">Кадры хроники появятся автоматически по мере продвижения ролевой ✨</div>`
+      : `<div class="mem-timeline">` +
+        store.chapters
           .map((ch, idx) => {
             const chId = ch.id || `ch_${idx}`;
             const isArmed = store.activeFlashback?.id === chId;
             return `
-            <div class="mem-chapter-item ${isArmed ? 'flashback-armed' : ''}" data-idx="${idx}" style="${
-              isArmed ? 'border-left-color:var(--mem-gold);background:rgba(255,217,125,0.08);' : ''
-            }">
+            <div class="mem-chapter-item ${isArmed ? 'flashback-armed' : ''}" data-idx="${idx}">
               <div class="mem-chapter-meta">
-                <span>Сообщения ${escapeHtml(ch.range || `#${idx + 1}`)}</span>
+                <span>⏱ Кадр ${escapeHtml(ch.range || `#${idx + 1}`)}</span>
                 <div style="display:inline-flex;gap:4px;">
-                  <span class="mem-mini-act ch-fb" title="Вызвать флешбек по этой главе">📸</span>
-                  <span class="mem-mini-act ch-del" title="Удалить главу">✕</span>
+                  <span class="mem-mini-act ch-fb" title="Вызвать флешбек по этому кадру">📸</span>
+                  <span class="mem-mini-act ch-del" title="Удалить кадр">✕</span>
                 </div>
               </div>
               <textarea rows="1" class="mem-fact-edit ch-edit" style="background:transparent!important;border:none!important;padding:0;">${escapeHtml(
@@ -846,7 +945,8 @@ function renderModalContent() {
               )}</textarea>
             </div>`;
           })
-          .join('');
+          .join('') +
+        `</div>`;
 
   body.innerHTML = `
     ${renderTransferBox()}
@@ -861,7 +961,7 @@ function renderModalContent() {
     </div>
 
     <div class="mem-section-label" style="padding:2px 2px 0;">
-      <span>Последние главы</span>
+      <span>Таймлайн последних сцен</span>
       <span id="mem-toggle-preview" style="cursor:pointer;text-transform:none;font-weight:500;color:var(--mem-sub);">
         ${showPromptPreview ? 'Скрыть промпт ▴' : 'Что видит бот ▾'}
       </span>
@@ -869,7 +969,7 @@ function renderModalContent() {
 
     ${showPromptPreview ? `<div class="mem-preview-box">${escapeHtml(promptText || 'Промпт памяти пока пуст.')}</div>` : ''}
 
-    <div class="mem-clean-list">${chaptersHtml}</div>
+    ${chaptersHtml}
   `;
 
   bindTransferEvents();
