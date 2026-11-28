@@ -23,7 +23,8 @@
 
 ## 🚀 Установка в SillyTavern
 
-1. Откройте **SillyTavern** → вкладка **Extensions** (иконка кубиков вверху).\n2. Нажмите **Install Extension**.
+1. Откройте **SillyTavern** → вкладка **Extensions** (иконка кубиков вверху).
+2. Нажмите **Install Extension**.
 3. Вставьте ссылку на репозиторий GitHub:
    ```text
    https://github.com/ridaginz-web/st-memorize

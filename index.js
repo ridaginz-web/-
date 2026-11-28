@@ -1,324 +1,39 @@
-const MODULE_NAME = 'memorize_time_studio';
-const PROMPT_KEY = 'memorize_time_studio_prompt';
-const FLASHBACK_PROMPT_KEY = 'memorize_time_studio_flashback';
-const LOCAL_API_KEY_STORAGE = 'memorize_studio_secret_api_key';
-const LOCAL_MODELS_CACHE = 'memorize_studio_models_cache';
+import { getMascotSVG } from './mascots.js';
+import {
+  CATEGORIES,
+  CATEGORY_KEYS,
+  QUOTES,
+  buildPromptText,
+  createSnapshot,
+  escapeHtml,
+  estimateTokens,
+  getChatStore,
+  getST,
+  getSettings,
+  highlightMatch,
+  normalizeCategory,
+  registerUiHooks,
+  rollbackSnapshot,
+  runExtraction,
+  saveChatStore,
+  saveSettings,
+  toFiniteNumber,
+  uid,
+  updateInjection,
+} from './memory-core.js';
+import { mountSettingsPanel } from './settings-panel.js';
 
-const MAX_RECENT_CHAPTERS = 4;
-const MAX_AUTO_FACTS = 20;
-
-const CATEGORIES = {
-  events: { icon: '⏳', label: 'События', full: '⏳ События' },
-  relations: { icon: '💞', label: 'Отношения', full: '💞 Отношения' },
-  secrets: { icon: '🗝', label: 'Секреты', full: '🗝 Секреты и детали' },
-  scene: { icon: '📍', label: 'Сцена', full: '📍 Текущая сцена' },
-};
-const CATEGORY_KEYS = Object.keys(CATEGORIES);
-
-const QUOTES = [
-  'Лу Гуан: «Нажми на любой факт — и персонаж вспомнит этот момент.»',
-  'Чэн Сяоши: «Хлоп! Запускаем флешбек прямо в сцену 📸✨»',
-  'Лу Гуан: «Старые главы сжаты в канон, контекст лёгкий.»',
-  'Чэн Сяоши: «Закрепляй важные секреты булавочкой 📌!»',
-];
-
-const DEFAULT_EXTRACTION_PROMPT = `Ты — модуль долгосрочной памяти ролевой игры «Memorize».
-Проанализируй НОВЫЕ сообщения чата с учётом текущей памяти и верни обновлённый слепок строго в JSON.
-
-ПРАВИЛА ДЛЯ ДЛИННЫХ ЧАТОВ:
-1. Пиши на русском языке, сухо, точно и без художественной воды (1 запись = 1 конкретный факт).
-2. "new_chapter": краткая выжимка ТОЛЬКО новых сообщений из блока анализа (1-3 компактных предложения).
-3. Распредели самые важные актуальные факты по 4 рубрикам (объединяй дубликаты, обновляй изменившиеся статусы и удаляй проходные мелочи, суммарно не более 18-20 пунктов):
-   - "events": ключевые произошедшие события и повороты.
-   - "relations": чувства, динамика близости/доверия, ссоры, флирт, договорённости между персонажами.
-   - "secrets": признания, тайны, личные травмы/диагнозы, обещания, важные предметы и детали.
-   - "scene": где сейчас находятся персонажи, время/обстановка и что происходит в моменте (1-3 пункта).
-4. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери канона. Иначе оставь "core_canon" как есть.
-5. Верни ТОЛЬКО валидный JSON строго по схеме:
-
-{
-  "core_canon": "Сжатая основа прошлых арок сюжета (если есть)",
-  "new_chapter": "Краткий итог новых проанализированных сообщений (1-3 предложения)",
-  "events": ["Ключевое событие"],
-  "relations": ["Статус отношений и чувств"],
-  "secrets": ["Секрет, признание, деталь или обещание"],
-  "scene": ["Текущая локация и ситуация"]
-}`;
-
-const DEFAULT_INJECTION_TEMPLATE = `[ДОЛГОСРОЧНАЯ ПАМЯТЬ ИСТОРИИ — учитывай эти события и факты из прошлых сцен]
-{{canon_block}}
-{{chapters_block}}
-{{facts_block}}
-[Конец блока памяти. Не противоречь указанным фактам.]`;
-
-const DEFAULT_SETTINGS = {
-  enabled: true,
-  showChibi: true,
-  mascotMode: 'duo', // 'duo' | 'lg' | 'cxs'
-  autoExtract: true,
-  everyNMessages: 16,
-  scanWindow: 20,
-  injectionPosition: 1, // 1 = IN_CHAT (@ depth)
-  injectionDepth: 2,
-  injectionRole: 0, // 0 = SYSTEM
-  useCustomApi: false,
-  customApiUrl: 'https://openrouter.ai/api/v1',
-  customApiModel: '',
-  customTemperature: 0.25,
-  customMaxTokens: 1600,
-  extractionPrompt: DEFAULT_EXTRACTION_PROMPT,
-  injectionTemplate: DEFAULT_INJECTION_TEMPLATE,
-  schemaVersion: 4,
-  widgetPos: null,
-};
-
-let activeTopTab = 'events'; // 'events' | 'relations' | 'secrets' | 'scene' | 'chronicle'
+let activeTopTab = 'events';
 let searchQuery = '';
 let quickAddOpen = false;
 let quickAddCat = 'events';
 let editingFactId = null;
 let showPromptPreview = false;
-let isExtracting = false;
 let bubbleTimer = null;
-let modelFetchTimer = null;
-let modelDropdownOpen = true;
-let cachedModels = loadCachedModels();
-
-function getST() {
-  return window.SillyTavern?.getContext?.() || null;
-}
-
-function escapeHtml(str = '') {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function uid(prefix = 'f') {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function estimateTokens(text = '') {
-  if (!text) return 0;
-  return Math.max(1, Math.round(text.length / 3.2));
-}
-
-function getApiKey() {
-  return localStorage.getItem(LOCAL_API_KEY_STORAGE) || '';
-}
-
-function setApiKey(val) {
-  if (!val) localStorage.removeItem(LOCAL_API_KEY_STORAGE);
-  else localStorage.setItem(LOCAL_API_KEY_STORAGE, val.trim());
-}
-
-function loadCachedModels() {
-  try {
-    const raw = localStorage.getItem(LOCAL_MODELS_CACHE);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function saveCachedModels(list) {
-  cachedModels = Array.isArray(list) ? list : [];
-  try {
-    localStorage.setItem(LOCAL_MODELS_CACHE, JSON.stringify(cachedModels.slice(0, 800)));
-  } catch (_) {}
-}
-
-function normalizeBaseUrl(url = '') {
-  return String(url)
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/chat\/completions$/i, '')
-    .replace(/\/models$/i, '');
-}
-
-function getSettings() {
-  const ctx = getST();
-  if (!ctx) return { ...DEFAULT_SETTINGS };
-  if (!ctx.extensionSettings[MODULE_NAME]) {
-    ctx.extensionSettings[MODULE_NAME] = { ...DEFAULT_SETTINGS };
-  }
-  const s = ctx.extensionSettings[MODULE_NAME];
-  for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
-    if (s[k] === undefined) s[k] = v;
-  }
-  // Авто-обновление старых шаблонов промпта из ранних версий
-  if ((Number(s.schemaVersion) || 0) < 4) {
-    s.extractionPrompt = DEFAULT_EXTRACTION_PROMPT;
-    s.injectionTemplate = DEFAULT_INJECTION_TEMPLATE;
-    s.schemaVersion = 4;
-    ctx.saveSettingsDebounced?.();
-  }
-  return s;
-}
-
-function saveSettings() {
-  getST()?.saveSettingsDebounced?.();
-}
-
-function inferFactCategory(text = '') {
-  const t = String(text).toLowerCase();
-  if (/признал|тайна|секрет|скрывал|диагноз|прл|шрам|травм|обеща|клятв|паспорт|прокол|ключ|подарок|письм|боится|страх|улик/i.test(t)) {
-    return 'secrets';
-  }
-  if (/отношен|чувств|влюблен|любов|флирт|поцелу|обнял|ревн|довер|ссор|разрыв|близост|нежност|переписывал|видеосвяз|скуча|касани/i.test(t)) {
-    return 'relations';
-  }
-  if (/сейчас|находятся|текущ|цель|направля|остановил|сидят в|в комнате|в общежит|обстановк/i.test(t)) {
-    return 'scene';
-  }
-  return 'events';
-}
-
-function normalizeCategory(cat, fallbackText = '') {
-  if (cat === 'clues') return 'secrets';
-  if (cat && CATEGORIES[cat]) return cat;
-  return inferFactCategory(fallbackText);
-}
-
-function highlightMatch(text = '', query = '') {
-  const safe = escapeHtml(text);
-  const q = String(query || '').trim();
-  if (!q) return safe;
-  const escapedQ = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return safe.replace(new RegExp(`(${escapedQ})`, 'gi'), '<span class="mem-hl">$1</span>');
-}
-
-/* === Хранилище памяти чата (с мягкой миграцией старых версий и авто-рубриками) === */
-function getChatStore() {
-  const ctx = getST();
-  if (!ctx || !ctx.chatMetadata) {
-    return {
-      coreCanon: '',
-      chapters: [],
-      facts: [],
-      activeFlashback: null,
-      lastProcessedIndex: 0,
-      previousSnapshot: null,
-    };
-  }
-  if (!ctx.chatMetadata[MODULE_NAME]) {
-    ctx.chatMetadata[MODULE_NAME] = {
-      coreCanon: '',
-      chapters: [],
-      facts: [],
-      activeFlashback: null,
-      lastProcessedIndex: 0,
-      previousSnapshot: null,
-    };
-  }
-  const store = ctx.chatMetadata[MODULE_NAME];
-
-  if (typeof store.coreCanon !== 'string') {
-    store.coreCanon = typeof store.summary === 'string' ? store.summary : '';
-    delete store.summary;
-  }
-  if (!Array.isArray(store.chapters)) store.chapters = [];
-  if (!Array.isArray(store.facts)) store.facts = [];
-  if (store.activeFlashback === undefined) store.activeFlashback = null;
-  if (typeof store.lastProcessedIndex !== 'number') store.lastProcessedIndex = 0;
-
-  // Авто-восстановление категорий для фактов из прошлых версий
-  for (const f of store.facts) {
-    if (f && typeof f === 'object') {
-      f.category = normalizeCategory(f.category, f.text);
-    }
-  }
-
-  return store;
-}
-
-async function saveChatStore() {
-  const ctx = getST();
-  updateInjection();
-  updateWidgetBadge();
-  if (ctx?.saveMetadata) {
-    await ctx.saveMetadata();
-  }
-}
-
-/* === Сборка текста, память и Флешбек в промпт бота === */
-function buildPromptText() {
-  const settings = getSettings();
-  if (!settings.enabled) return '';
-
-  const store = getChatStore();
-  const canon = (store.coreCanon || '').trim();
-  const activeChapters = store.chapters.filter((c) => c.text?.trim());
-  const activeFacts = store.facts.filter((f) => f.enabled !== false && f.text?.trim());
-
-  if (!canon && activeChapters.length === 0 && activeFacts.length === 0) return '';
-
-  const canonBlock = canon ? `Основа прошлых событий:\n${canon}` : '';
-
-  const chaptersBlock =
-    activeChapters.length > 0
-      ? `Хроника последних сцен:\n` +
-        activeChapters.map((c) => `• [${c.range || 'Сцена'}] ${c.text.trim()}`).join('\n')
-      : '';
-
-  const grouped = [];
-  for (const catKey of CATEGORY_KEYS) {
-    const items = activeFacts.filter((f) => normalizeCategory(f.category, f.text) === catKey);
-    if (items.length > 0) {
-      grouped.push(`${CATEGORIES[catKey].full}:\n` + items.map((f) => `- ${f.text.trim()}`).join('\n'));
-    }
-  }
-  const factsBlock = grouped.join('\n\n');
-
-  return (settings.injectionTemplate || DEFAULT_INJECTION_TEMPLATE)
-    .replace('{{canon_block}}', canonBlock)
-    .replace('{{chapters_block}}', chaptersBlock)
-    .replace('{{facts_block}}', factsBlock)
-    .replace('{{summary_block}}', canonBlock)
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function buildFlashbackPrompt() {
-  const settings = getSettings();
-  if (!settings.enabled) return '';
-  const store = getChatStore();
-  const fb = store.activeFlashback;
-  if (!fb || !fb.text?.trim()) return '';
-
-  return `[ФОКУС ПАМЯТИ — ФЛЕШБЕК ПЕРСОНАЖА]
-В своём СЛЕДУЮЩЕМ ответе персонаж ({{char}}) должен живо и естественно вспомнить этот момент или факт из прошлого:
-«${fb.text.trim()}»
-Органично вплети это воспоминание в текущую сцену — через внезапную ассоциацию, взгляд, деталь, внутреннюю мысль, эмоцию или прямую реплику, сохраняя характер {{char}} и не ломая ход ролевой.`;
-}
-
-function updateInjection() {
-  const ctx = getST();
-  if (!ctx?.setExtensionPrompt) return;
-
-  const settings = getSettings();
-  const text = buildPromptText();
-  const pos = Number(settings.injectionPosition) ?? 1;
-  const depth = Number(settings.injectionDepth) ?? 2;
-  const role = Number(settings.injectionRole) ?? 0;
-
-  if (!settings.enabled || !text) {
-    ctx.setExtensionPrompt(PROMPT_KEY, '', pos, depth, false, role);
-  } else {
-    ctx.setExtensionPrompt(PROMPT_KEY, text, pos, depth, false, role);
-  }
-
-  // Инжект активного флешбека прямо перед генерацией (Depth = 0)
-  const fbText = buildFlashbackPrompt();
-  ctx.setExtensionPrompt(FLASHBACK_PROMPT_KEY, fbText || '', 1, 0, false, 0);
-}
+let eventsBound = false;
 
 async function triggerFlashbackNow() {
-  const store = getChatStore();
-  if (!store.activeFlashback?.text) return;
+  const store = getChatStore();\n  if (!store.activeFlashback?.text) return;
 
   updateInjection();
   closeModal();
@@ -350,532 +65,6 @@ async function triggerFlashbackNow() {
   }
 
   showBubble('Флешбек заряжен! Отправь сообщение — и бот вспомнит этот момент ✨', 4200);
-}
-
-/* === Свой API и авто-подгрузка скролл-списка моделей === */
-async function callCustomLLM(promptText) {
-  const s = getSettings();
-  const baseUrl = normalizeBaseUrl(s.customApiUrl);
-  const apiKey = getApiKey();
-  const model = (s.customApiModel || '').trim();
-
-  if (!baseUrl) throw new Error('Укажите API Base URL');
-  if (!apiKey) throw new Error('Укажите API Key');
-  if (!model) throw new Error('Выберите модель из списка в настройках');
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: Number(s.customTemperature) ?? 0.25,
-      max_tokens: Number(s.customMaxTokens) || 1500,
-      messages: [
-        { role: 'system', content: 'Отвечай строго валидным JSON без лишнего текста.' },
-        { role: 'user', content: promptText },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text().catch(() => '');
-    throw new Error(`HTTP ${response.status}: ${errBody.slice(0, 100)}`);
-  }
-
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content || '';
-}
-
-async function fetchModelsAutomatically(silent = false) {
-  const statusEl = document.getElementById('mem_cfg_api_status');
-  const s = getSettings();
-  const baseUrl = normalizeBaseUrl(s.customApiUrl);
-  const apiKey = getApiKey();
-
-  if (!baseUrl || !apiKey) {
-    if (!silent && statusEl) statusEl.textContent = 'Введите API URL и ключ — список моделей появится сам.';
-    renderModelPickerList();
-    return;
-  }
-
-  if (statusEl) statusEl.textContent = '⏳ Загружаем список моделей...';
-
-  try {
-    const res = await fetch(`${baseUrl}/models`, {
-      method: 'GET',
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const json = await res.json();
-    const rawList = Array.isArray(json?.data)
-      ? json.data.map((m) => (typeof m === 'string' ? m : m?.id)).filter(Boolean)
-      : Array.isArray(json?.models)
-      ? json.models.map((m) => (typeof m === 'string' ? m : m?.id || m?.name)).filter(Boolean)
-      : [];
-
-    const sorted = Array.from(new Set(rawList)).sort((a, b) => a.localeCompare(b));
-    saveCachedModels(sorted);
-
-    // Если модель ещё не выбрана — сразу выбираем первую подходящую
-    if (!s.customApiModel && sorted.length > 0) {
-      s.customApiModel = sorted[0];
-      saveSettings();
-    }
-
-    modelDropdownOpen = true;
-    renderModelPickerList();
-
-    if (statusEl) {
-      statusEl.textContent = sorted.length
-        ? `✅ Подключено · Доступно моделей: ${sorted.length}`
-        : '✅ Ключ принят (список пуст — введите модель в поиск ниже)';
-    }
-  } catch (err) {
-    renderModelPickerList();
-    if (statusEl) statusEl.textContent = `❌ Не удалось загрузить модели (${err.message})`;
-  }
-}
-
-function scheduleAutoModelFetch() {
-  clearTimeout(modelFetchTimer);
-  modelFetchTimer = setTimeout(() => fetchModelsAutomatically(true), 550);
-}
-
-function renderModelPickerList() {
-  const host = document.getElementById('mem_model_picker_host');
-  if (!host) return;
-
-  const s = getSettings();
-  const searchInput = document.getElementById('mem_model_search_input');
-  const query = (searchInput?.value || '').trim().toLowerCase();
-
-  const currentLabel = s.customApiModel || 'Нажмите, чтобы выбрать модель...';
-  const filtered = query
-    ? cachedModels.filter((id) => id.toLowerCase().includes(query))
-    : cachedModels;
-
-  // Если контейнера ещё нет — создаём каркас, чтобы не сбивать фокус при вводе поиска
-  if (!document.getElementById('mem_selected_model_bar')) {
-    host.innerHTML = `
-      <div class="mem-model-picker">
-        <div id="mem_selected_model_bar" class="mem-selected-model-bar" title="Нажмите, чтобы свернуть/развернуть список">
-          <span id="mem_selected_model_text"></span>
-          <span id="mem_selected_model_arrow" style="opacity:0.75;font-size:11px;">▾</span>
-        </div>
-        <div id="mem_model_dropdown" class="mem-model-dropdown">
-          <input id="mem_model_search_input" class="text_pole" type="text" placeholder="🔍 Быстрый поиск или своё имя модели..." style="margin:0;font-size:12px;padding:5px 8px;" />
-          <div id="mem_model_scroll_list" class="mem-model-list"></div>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('mem_selected_model_bar').addEventListener('click', () => {
-      modelDropdownOpen = !modelDropdownOpen;
-      renderModelPickerList();
-    });
-
-    document.getElementById('mem_model_search_input').addEventListener('input', () => {
-      renderModelPickerList();
-    });
-  }
-
-  const textEl = document.getElementById('mem_selected_model_text');
-  const arrowEl = document.getElementById('mem_selected_model_arrow');
-  const dropdownEl = document.getElementById('mem_model_dropdown');
-  const listEl = document.getElementById('mem_model_scroll_list');
-
-  if (textEl) textEl.textContent = `🤖 ${currentLabel}`;
-  if (arrowEl) arrowEl.textContent = modelDropdownOpen ? '▴' : '▾';
-  if (dropdownEl) dropdownEl.style.display = modelDropdownOpen ? 'flex' : 'none';
-  if (!listEl) return;
-
-  const rawTyped = (document.getElementById('mem_model_search_input')?.value || '').trim();
-  const optionsHtml = [];
-
-  if (rawTyped && !cachedModels.includes(rawTyped)) {
-    optionsHtml.push(`
-      <div class="mem-model-option" data-model="${escapeHtml(rawTyped)}">
-        <span>✨ Использовать: <b>${escapeHtml(rawTyped)}</b></span>
-        <span>↵</span>
-      </div>
-    `);
-  }
-
-  for (const id of filtered) {
-    const isSel = id === s.customApiModel;
-    optionsHtml.push(`
-      <div class="mem-model-option ${isSel ? 'selected' : ''}" data-model="${escapeHtml(id)}">
-        <span>${escapeHtml(id)}</span>
-        <span>${isSel ? '✓' : ''}</span>
-      </div>
-    `);
-  }
-
-  if (optionsHtml.length === 0) {
-    listEl.innerHTML = `<div style="padding:8px;font-size:11.5px;opacity:0.7;text-align:center;">Список пока пуст — введите URL и API Key выше</div>`;
-    return;
-  }
-
-  listEl.innerHTML = optionsHtml.join('');
-  listEl.querySelectorAll('.mem-model-option').forEach((opt) => {
-    opt.addEventListener('click', () => {
-      const picked = opt.dataset.model;
-      if (!picked) return;
-      getSettings().customApiModel = picked;
-      saveSettings();
-      renderModelPickerList();
-    });
-  });
-}
-
-/* === Разбор ответа LLM и многоуровневое сжатие для больших чатов === */
-function parseMemoryOutput(rawText) {
-  if (!rawText || typeof rawText !== 'string') return null;
-  const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-      const categorized = [];
-
-      for (const catKey of CATEGORY_KEYS) {
-        if (Array.isArray(parsed[catKey])) {
-          for (const item of parsed[catKey]) {
-            const t = String(item || '').trim();
-            if (t) categorized.push({ category: catKey, text: t });
-          }
-        }
-      }
-      if (Array.isArray(parsed.clues)) {
-        for (const item of parsed.clues) {
-          const t = String(item || '').trim();
-          if (t) categorized.push({ category: 'secrets', text: t });
-        }
-      }
-      if (categorized.length === 0 && Array.isArray(parsed.facts)) {
-        for (const item of parsed.facts) {
-          const t = String(item || '').trim();
-          if (t) categorized.push({ category: inferFactCategory(t), text: t });
-        }
-      }
-
-      return {
-        core_canon:
-          typeof parsed.core_canon === 'string'
-            ? parsed.core_canon.trim()
-            : typeof parsed.summary === 'string'
-            ? parsed.summary.trim()
-            : '',
-        new_chapter: typeof parsed.new_chapter === 'string' ? parsed.new_chapter.trim() : '',
-        facts: categorized,
-      };
-    } catch (_) {}
-  }
-
-  const lines = cleaned
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^[-•*]\s+/.test(l))
-    .map((l) => l.replace(/^[-•*]\s+/, '').trim());
-
-  if (lines.length > 0) {
-    return {
-      core_canon: '',
-      new_chapter: '',
-      facts: lines.map((t) => ({ category: inferFactCategory(t), text: t })),
-    };
-  }
-  return null;
-}
-
-async function runExtraction(manual = false) {
-  const ctx = getST();
-  if (!ctx || isExtracting) return;
-
-  const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
-  const validMessages = chat
-    .map((m, idx) => ({ m, idx }))
-    .filter(({ m }) => m && !m.is_system && typeof m.mes === 'string' && m.mes.trim());
-
-  if (validMessages.length === 0) {
-    if (manual) showBubble('Пока нет сообщений для памяти ✨');
-    return;
-  }
-
-  const settings = getSettings();
-  const store = getChatStore();
-
-  let slice = validMessages.filter(({ idx }) => idx >= store.lastProcessedIndex);
-  let isRescanTail = false;
-  if (slice.length === 0) {
-    if (!manual) return;
-    isRescanTail = true;
-    const count = Math.max(4, Number(settings.scanWindow) || 20);
-    slice = validMessages.slice(-count);
-  } else if (slice.length > 35) {
-    slice = slice.slice(-35);
-  }
-
-  const fromMsg = slice[0].idx + 1;
-  const toMsg = slice[slice.length - 1].idx + 1;
-  const rangeLabel = `#${fromMsg}–${toMsg}`;
-
-  const formattedChat = slice
-    .map(({ m }) => `${m.name || (m.is_user ? 'User' : 'Char')}: ${m.mes.trim()}`)
-    .join('\n\n');
-
-  let chaptersToCompress = [];
-  let chaptersToKeep = [...store.chapters];
-  if (store.chapters.length >= MAX_RECENT_CHAPTERS && !isRescanTail) {
-    const cutCount = store.chapters.length - (MAX_RECENT_CHAPTERS - 2);
-    chaptersToCompress = store.chapters.slice(0, cutCount);
-    chaptersToKeep = store.chapters.slice(cutCount);
-  }
-
-  const groupedCurrent = {};
-  for (const catKey of CATEGORY_KEYS) {
-    groupedCurrent[catKey] = store.facts
-      .filter((f) => f.enabled !== false && normalizeCategory(f.category, f.text) === catKey)
-      .map((f) => f.text);
-  }
-
-  const payloadContext = {
-    core_canon: store.coreCanon || '',
-    chapters_to_compress: chaptersToCompress.map((c) => `[${c.range}] ${c.text}`),
-    recent_chapters: chaptersToKeep.map((c) => `[${c.range}] ${c.text}`),
-    ...groupedCurrent,
-  };
-
-  const fullPrompt = `${settings.extractionPrompt || DEFAULT_EXTRACTION_PROMPT}
-
-ТЕКУЩАЯ ПАМЯТЬ ЧАТА:
-${JSON.stringify(payloadContext, null, 2)}
-
-НОВЫЕ СООБЩЕНИЯ ЧАТА (${rangeLabel}):
-${formattedChat}`;
-
-  try {
-    isExtracting = true;
-    setSyncingState(true);
-    showBubble('Синхронизируем память... ✨', 6000);
-
-    let rawResult = '';
-    if (settings.useCustomApi) {
-      rawResult = await callCustomLLM(fullPrompt);
-    } else {
-      if (typeof ctx.generateRaw === 'function') {
-        try {
-          rawResult = await ctx.generateRaw({
-            prompt: fullPrompt,
-            systemPrompt: 'Отвечай строго валидным JSON без лишнего текста.',
-          });
-        } catch (_) {
-          rawResult = '';
-        }
-      }
-      if (!rawResult && typeof ctx.generateQuietPrompt === 'function') {
-        rawResult = await ctx.generateQuietPrompt({ quietPrompt: fullPrompt });
-      }
-    }
-
-    const parsed = parseMemoryOutput(rawResult);
-    if (!parsed) {
-      showBubble('Не удалось разобрать JSON ответа 😿');
-      return;
-    }
-
-    store.previousSnapshot = JSON.stringify({
-      coreCanon: store.coreCanon,
-      chapters: store.chapters,
-      facts: store.facts,
-      lastProcessedIndex: store.lastProcessedIndex,
-    });
-
-    if (parsed.core_canon) {
-      store.coreCanon = parsed.core_canon;
-    } else if (chaptersToCompress.length > 0) {
-      const joinedOld = chaptersToCompress.map((c) => c.text).join(' ');
-      store.coreCanon = [store.coreCanon, joinedOld].filter(Boolean).join(' ');
-    }
-
-    if (parsed.new_chapter) {
-      if (isRescanTail && chaptersToKeep.length > 0 && chaptersToKeep[chaptersToKeep.length - 1].range === rangeLabel) {
-        chaptersToKeep[chaptersToKeep.length - 1].text = parsed.new_chapter;
-      } else {
-        chaptersToKeep.push({
-          id: uid('ch'),
-          range: rangeLabel,
-          text: parsed.new_chapter,
-        });
-      }
-    }
-    store.chapters = chaptersToKeep;
-
-    const lockedFacts = store.facts.filter((f) => f.locked);
-    const seen = new Set(lockedFacts.map((f) => f.text.trim().toLowerCase()));
-    const nextFacts = [...lockedFacts];
-
-    for (const entry of parsed.facts.slice(0, MAX_AUTO_FACTS)) {
-      const clean = String(entry?.text || '').trim();
-      if (!clean || seen.has(clean.toLowerCase())) continue;
-      seen.add(clean.toLowerCase());
-      nextFacts.push({
-        id: uid('f'),
-        category: normalizeCategory(entry.category, clean),
-        text: clean,
-        enabled: true,
-        locked: false,
-      });
-    }
-
-    store.facts = nextFacts;
-    store.lastProcessedIndex = chat.length;
-    await saveChatStore();
-    renderModalContent();
-    showBubble(`Память обновлена (${store.facts.length}) ✨`, 3000);
-  } catch (err) {
-    console.error('[Memorize] Extraction error:', err);
-    showBubble(`Ошибка API: ${err.message || 'проверьте настройки'}`);
-  } finally {
-    isExtracting = false;
-    setSyncingState(false);
-  }
-}
-
-async function rollbackSnapshot() {
-  const store = getChatStore();
-  if (!store.previousSnapshot) {
-    showBubble('Откатывать пока нечего ⏳');
-    return;
-  }
-  try {
-    const prev = JSON.parse(store.previousSnapshot);
-    store.coreCanon = prev.coreCanon ?? prev.summary ?? '';
-    store.chapters = Array.isArray(prev.chapters) ? prev.chapters : [];
-    store.facts = Array.isArray(prev.facts) ? prev.facts : [];
-    store.lastProcessedIndex = prev.lastProcessedIndex || 0;
-    store.previousSnapshot = null;
-    await saveChatStore();
-    renderModalContent();
-    showBubble('Лу Гуан вернул прошлый слепок ⏳');
-  } catch (e) {
-    console.error('[Memorize] Rollback error:', e);
-  }
-}
-
-/* === Кавайные Моти-Чибики (в формате пухлого стикера-фамильяра) === */
-function getLuGuangMochiGroup() {
-  return `
-    <!-- Пушистые кошачьи ушки Лу Гуана -->
-    <path d="M18 27 C14 13, 23 9, 32 18 Z" fill="#f3f7ff" stroke="#241e32" stroke-width="2.7" stroke-linejoin="round"/>
-    <path d="M20.5 23.5 C18.8 16, 23.5 14, 28.5 19 Z" fill="#ffb6cd"/>
-    <path d="M62 27 C66 13, 57 9, 48 18 Z" fill="#f3f7ff" stroke="#241e32" stroke-width="2.7" stroke-linejoin="round"/>
-    <path d="M59.5 23.5 C61.2 16, 56.5 14, 51.5 19 Z" fill="#ffb6cd"/>
-
-    <!-- Маленькие круглые ножки -->
-    <ellipse cx="32" cy="70" rx="5.2" ry="3.5" fill="#d7e4ff" stroke="#241e32" stroke-width="2.5"/>
-    <ellipse cx="48" cy="70" rx="5.2" ry="3.5" fill="#d7e4ff" stroke="#241e32" stroke-width="2.5"/>
-
-    <!-- Пухлое моти-тельце с полосатым животиком и часами -->
-    <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#eef4ff" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
-    <ellipse cx="40" cy="59.5" rx="9.5" ry="7.8" fill="#c7dcff"/>
-    <circle cx="40" cy="59.5" r="4.2" fill="#ffe184" stroke="#241e32" stroke-width="2"/>
-    <path d="M40 57.5 V59.6 L41.5 60.6" stroke="#5c4018" stroke-width="1.4" stroke-linecap="round" fill="none"/>
-
-    <!-- Круглые лапки -->
-    <ellipse cx="26" cy="57.5" rx="4.5" ry="3.4" transform="rotate(20 26 57.5)" fill="#fff7f4" stroke="#241e32" stroke-width="2.4"/>
-    <ellipse cx="54" cy="57.5" rx="4.5" ry="3.4" transform="rotate(-20 54 57.5)" fill="#fff7f4" stroke="#241e32" stroke-width="2.4"/>
-
-    <!-- Широкая пухлая моти-щёчкастая голова -->
-    <ellipse cx="40" cy="36.5" rx="24" ry="19" fill="#fff4ee" stroke="#241e32" stroke-width="2.7"/>
-
-    <!-- Мягкая округлая серебристая чёлка-облачко -->
-    <path d="M16 35 C15.5 19, 26.5 15.5, 40 15.5 C53.5 15.5, 64.5 19, 64 35 C61 29.5, 57 28.5, 53.5 32 C49.5 26, 44 26, 40 32 C36 26, 30.5 26, 26.5 32 C23 28.5, 19 29.5, 16 35 Z" fill="#f0f5ff" stroke="#241e32" stroke-width="2.5" stroke-linejoin="round"/>
-
-    <!-- Розовые румяные щёчки -->
-    <ellipse cx="23.2" cy="44" rx="4.8" ry="2.7" fill="#ff9ebb" opacity="0.82"/>
-    <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff9ebb" opacity="0.82"/>
-
-    <!-- Большие блестящие глаза-бусинки -->
-    <ellipse cx="29.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
-    <ellipse cx="50.5" cy="40" rx="4.5" ry="5" fill="#24233a"/>
-    <ellipse class="mem-eye-glow" cx="29.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
-    <ellipse class="mem-eye-glow" cx="50.5" cy="41.6" rx="3.2" ry="2.6" fill="#82afff"/>
-    <circle cx="27.8" cy="38" r="1.8" fill="#ffffff"/>
-    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
-    <circle cx="48.8" cy="38" r="1.8" fill="#ffffff"/>
-    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
-
-    <!-- Милый кошачий ротик ω -->
-    <path d="M37 44 Q38.5 45.8 40 44.1 Q41.5 45.8 43 44" fill="none" stroke="#241e32" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
-  `;
-}
-
-function getChengXiaoshiMochiGroup() {
-  return `
-    <!-- Мягкие висячие щенячьи ушки Чэн Сяоши -->
-    <path d="M21 22 C10.5 20, 8.5 32, 15.5 36.5 C18.8 38, 21 31, 22 25 Z" fill="#634239" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
-    <path d="M59 22 C69.5 20, 71.5 32, 64.5 36.5 C61.2 38, 59 31, 58 25 Z" fill="#634239" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
-
-    <!-- Маленькие ножки -->
-    <ellipse cx="32" cy="70" rx="5.2" ry="3.5" fill="#3d3852" stroke="#241e32" stroke-width="2.5"/>
-    <ellipse cx="48" cy="70" rx="5.2" ry="3.5" fill="#3d3852" stroke="#241e32" stroke-width="2.5"/>
-
-    <!-- Пухлое моти-тельце в худи с мини-камерой -->
-    <path d="M24.5 50 C22.5 63, 28 70, 40 70 C52 70, 57.5 63, 55.5 50 Z" fill="#3b374f" stroke="#241e32" stroke-width="2.6" stroke-linejoin="round"/>
-    <ellipse cx="40" cy="59.5" rx="9.2" ry="7.6" fill="#fff6f0"/>
-    <rect x="34.2" y="55.2" width="11.6" height="8.2" rx="2.6" fill="#526080" stroke="#241e32" stroke-width="1.9"/>
-    <circle cx="40" cy="59.3" r="2.3" fill="#9bc2ff"/>
-
-    <!-- Круглые лапки -->
-    <ellipse cx="26" cy="57.5" rx="4.5" ry="3.4" transform="rotate(20 26 57.5)" fill="#fff2e8" stroke="#241e32" stroke-width="2.4"/>
-    <ellipse cx="54" cy="57.5" rx="4.5" ry="3.4" transform="rotate(-20 54 57.5)" fill="#fff2e8" stroke="#241e32" stroke-width="2.4"/>
-
-    <!-- Широкая пухлая моти-голова -->
-    <ellipse cx="40" cy="36.5" rx="24" ry="19" fill="#fff1e6" stroke="#241e32" stroke-width="2.7"/>
-
-    <!-- Задорный хохолок-завиток и каштановая мягкая чёлка -->
-    <path d="M39 15.5 C37 8.5, 45.5 7.5, 44.5 14" fill="none" stroke="#241e32" stroke-width="2.8" stroke-linecap="round"/>
-    <path d="M16 35 C15.5 19, 26.5 15.5, 40 15.5 C53.5 15.5, 64.5 19, 64 35 C61 29, 56.5 28.5, 53 32 C49.5 26, 44 26.5, 40 32.2 C36 26.5, 30.5 26, 27 32 C23.5 28.5, 19 29, 16 35 Z" fill="#5e3e36" stroke="#241e32" stroke-width="2.5" stroke-linejoin="round"/>
-
-    <!-- Румяные розовые щёчки -->
-    <ellipse cx="23.2" cy="44" rx="4.8" ry="2.7" fill="#ff94b2" opacity="0.86"/>
-    <ellipse cx="56.8" cy="44" rx="4.8" ry="2.7" fill="#ff94b2" opacity="0.86"/>
-
-    <!-- Сияющие тёпло-янтарные глазки -->
-    <ellipse cx="29.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
-    <ellipse cx="50.5" cy="40" rx="4.6" ry="5.1" fill="#261b22"/>
-    <ellipse class="mem-eye-glow" cx="29.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
-    <ellipse class="mem-eye-glow" cx="50.5" cy="41.7" rx="3.3" ry="2.7" fill="#f3a24c"/>
-    <circle cx="27.7" cy="37.9" r="1.85" fill="#ffffff"/>
-    <circle cx="31.3" cy="42.4" r="0.85" fill="#ffffff"/>
-    <circle cx="48.7" cy="37.9" r="1.85" fill="#ffffff"/>
-    <circle cx="52.3" cy="42.4" r="0.85" fill="#ffffff"/>
-
-    <!-- Радостная улыбка -->
-    <path d="M36.8 43.2 Q40 47.2 43.2 43.2 Z" fill="#ff8da6" stroke="#241e32" stroke-width="2" stroke-linejoin="round"/>
-  `;
-}
-
-function getMascotSVG(mode = 'duo') {
-  if (mode === 'lg') {
-    return `<svg viewBox="8 6 64 69" xmlns="http://www.w3.org/2000/svg">${getLuGuangMochiGroup()}</svg>`;
-  }
-  if (mode === 'cxs') {
-    return `<svg viewBox="8 6 64 69" xmlns="http://www.w3.org/2000/svg">${getChengXiaoshiMochiGroup()}</svg>`;
-  }
-  return `
-    <svg viewBox="6 5 120 71" xmlns="http://www.w3.org/2000/svg">
-      <g transform="translate(0, 1) rotate(-3 40 45)">${getLuGuangMochiGroup()}</g>
-      <g transform="translate(46, 1) rotate(3 40 45)">${getChengXiaoshiMochiGroup()}</g>
-    </svg>
-  `;
 }
 
 /* === Плавающий виджет === */
@@ -924,6 +113,19 @@ function updateWidgetBadge() {
   }
 }
 
+function clampWidgetToViewport(widget) {
+  if (!widget || !widget.style.left || widget.style.left === 'auto') return;
+  const w = widget.offsetWidth || 60;
+  const h = widget.offsetHeight || 60;
+  const maxLeft = Math.max(0, window.innerWidth - w);
+  const maxTop = Math.max(0, window.innerHeight - h);
+  const rawLeft = parseFloat(widget.style.left);
+  const rawTop = parseFloat(widget.style.top);
+  if (!Number.isFinite(rawLeft) || !Number.isFinite(rawTop)) return;
+  widget.style.left = `${Math.round(Math.min(maxLeft, Math.max(0, rawLeft)))}px`;
+  widget.style.top = `${Math.round(Math.min(maxTop, Math.max(0, rawTop)))}px`;
+}
+
 function createWidget() {
   if (document.getElementById('memorize-chibi-widget')) return;
 
@@ -946,6 +148,11 @@ function createWidget() {
 
   document.body.appendChild(widget);
   renderWidgetMascot();
+  requestAnimationFrame(() => clampWidgetToViewport(widget));
+
+  window.addEventListener('resize', () => {
+    clampWidgetToViewport(document.getElementById('memorize-chibi-widget'));
+  });
 
   let dragging = false;
   let moved = false;
@@ -999,6 +206,13 @@ function createWidget() {
       wrap.classList.add('mem-jelly');
     }
     openModal();
+  });
+
+  widget.addEventListener('pointercancel', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    moved = false;
+    widget.releasePointerCapture?.(e.pointerId);
   });
 }
 
@@ -1066,9 +280,16 @@ function createModal() {
   });
 
   document.getElementById('mem-clear-all').addEventListener('click', async () => {
-    if (!confirm('Очистить память только для текущего чата?')) return;
+    const ctx = getST();
+    const confirmed = ctx?.Popup?.show?.confirm
+      ? await ctx.Popup.show.confirm(
+          'Очистка памяти чата',
+          'Очистить память только для текущего чата? (Её можно будет вернуть кнопкой ⏪)'
+        )
+      : window.confirm('Очистить память только для текущего чата?');
+    if (!confirmed) return;
     const store = getChatStore();
-    store.previousSnapshot = JSON.stringify(store);
+    store.previousSnapshot = createSnapshot(store);
     store.coreCanon = '';
     store.chapters = [];
     store.facts = [];
@@ -1359,11 +580,15 @@ function renderModalContent() {
       });
 
       const editTa = row.querySelector('.mem-fact-edit');
+      let commitEdit = null;
       if (editTa) {
+        let editFinished = false;
         requestAnimationFrame(() => autoResizeTextarea(editTa));
         editTa.focus();
         editTa.addEventListener('input', () => autoResizeTextarea(editTa));
-        const commitEdit = async () => {
+        commitEdit = async () => {
+          if (editFinished) return;
+          editFinished = true;
           const nextText = editTa.value.trim();
           if (nextText) fact.text = nextText;
           if (store.activeFlashback?.id === fact.id && nextText) {
@@ -1377,29 +602,50 @@ function renderModalContent() {
         editTa.addEventListener('keydown', (e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            editTa.blur();
+            commitEdit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            editFinished = true;
+            editingFactId = null;
+            renderModalContent();
           }
         });
+
+        row.querySelector('.mem-row-tools')?.addEventListener('mousedown', (e) => e.preventDefault());
+        row.querySelector('.mem-cat-badge')?.addEventListener('mousedown', (e) => e.preventDefault());
       }
 
-      row.querySelector('.act-edit')?.addEventListener('click', () => {
+      row.querySelector('.act-edit')?.addEventListener('click', async () => {
+        if (editingFactId === fact.id && commitEdit) {
+          await commitEdit();
+          return;
+        }
         editingFactId = editingFactId === fact.id ? null : fact.id;
         renderModalContent();
       });
 
       row.querySelector('.act-pin')?.addEventListener('click', async () => {
+        if (editTa) {
+          const nextText = editTa.value.trim();
+          if (nextText) fact.text = nextText;
+        }
         fact.locked = !fact.locked;
         await saveChatStore();
         renderModalContent();
       });
 
       row.querySelector('.act-mute')?.addEventListener('click', async () => {
+        if (editTa) {
+          const nextText = editTa.value.trim();
+          if (nextText) fact.text = nextText;
+        }
         fact.enabled = fact.enabled === false;
         await saveChatStore();
         renderModalContent();
       });
 
       row.querySelector('.act-del')?.addEventListener('click', async () => {
+        if (editingFactId === fact.id) editingFactId = null;
         if (store.activeFlashback?.id === fact.id) store.activeFlashback = null;
         store.facts = store.facts.filter((x) => x.id !== id);
         await saveChatStore();
@@ -1508,172 +754,28 @@ function renderModalContent() {
   });
 }
 
-/* === Настройки расширения в меню Extensions === */
-function mountSettingsPanel() {
-  if (document.getElementById('memorize-settings-panel')) return;
-  const host = document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
-  if (!host) return;
-
-  const s = getSettings();
-  const wrapper = document.createElement('div');
-  wrapper.id = 'memorize-settings-panel';
-  wrapper.className = 'inline-drawer';
-  wrapper.innerHTML = `
-    <div class="inline-drawer-toggle inline-drawer-header">
-      <b>🐾 Memorize: Лу Гуан и Чэн Сяоши</b>
-      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-    </div>
-    <div class="inline-drawer-content" style="display:flex;flex-direction:column;gap:8px;padding-top:8px;">
-      <label class="checkbox_label">
-        <input id="mem_cfg_enabled" type="checkbox" ${s.enabled ? 'checked' : ''} />
-        <span>Включить память чата (инжект в промпт)</span>
-      </label>
-      <label class="checkbox_label">
-        <input id="mem_cfg_chibi" type="checkbox" ${s.showChibi ? 'checked' : ''} />
-        <span>Показывать моти-маскота на экране</span>
-      </label>
-      <div>
-        <small>Вид маскота:</small>
-        <select id="mem_cfg_mascot_mode" class="text_pole">
-          <option value="duo" ${s.mascotMode === 'duo' ? 'selected' : ''}>🐱🐶 Дуэт (Лу Гуан + Чэн Сяоши)</option>
-          <option value="lg" ${s.mascotMode === 'lg' ? 'selected' : ''}>🐱 Только котик Лу Гуан (компактный)</option>
-          <option value="cxs" ${s.mascotMode === 'cxs' ? 'selected' : ''}>🐶 Только щенок Чэн Сяоши (компактный)</option>
-        </select>
-      </div>
-      <label class="checkbox_label">
-        <input id="mem_cfg_auto" type="checkbox" ${s.autoExtract ? 'checked' : ''} />
-        <span>Авто-выжимка каждые N сообщений</span>
-      </label>
-      <div style="display:flex;gap:8px;">
-        <div style="flex:1;">
-          <small>Интервал (сообщ.):</small>
-          <input id="mem_cfg_interval" class="text_pole" type="number" min="4" max="100" value="${Number(s.everyNMessages) || 16}" />
-        </div>
-        <div style="flex:1;">
-          <small>Глубина (Depth):</small>
-          <input id="mem_cfg_depth" class="text_pole" type="number" min="0" max="50" value="${Number(s.injectionDepth) ?? 2}" />
-        </div>
-      </div>
-
-      <hr style="opacity:0.2;margin:4px 0;" />
-
-      <label class="checkbox_label">
-        <input id="mem_cfg_use_custom_api" type="checkbox" ${s.useCustomApi ? 'checked' : ''} />
-        <span><b>🔑 Свой API с ключом</b> (авто-список моделей)</span>
-      </label>
-
-      <div id="mem_custom_api_block" style="display:${s.useCustomApi ? 'flex' : 'none'};flex-direction:column;gap:6px;padding:8px;border:1px solid rgba(155,184,255,0.22);border-radius:10px;">
-        <div>
-          <small>API Base URL:</small>
-          <input id="mem_cfg_api_url" class="text_pole" type="text" placeholder="https://elysiumai.net/v1" value="${escapeHtml(s.customApiUrl)}" />
-        </div>
-        <div>
-          <small>API Key (хранится только локально в браузере):</small>
-          <input id="mem_cfg_api_key" class="text_pole" type="password" placeholder="sk-..." value="${escapeHtml(getApiKey())}" />
-        </div>
-
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
-          <small>Выберите модель (скролл):</small>
-          <span id="mem_cfg_refresh_models" style="font-size:11.5px;cursor:pointer;color:#9bb8ff;">🔄 Обновить</span>
-        </div>
-        <div id="mem_model_picker_host"></div>
-        <small id="mem_cfg_api_status" style="opacity:0.85;"></small>
-      </div>
-
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
-        <button id="mem_cfg_open_modal" class="menu_button" type="button">🐾 Открыть память чата</button>
-        <button id="mem_cfg_reset_pos" class="menu_button" type="button">Сбросить позицию маскота</button>
-      </div>
-    </div>
-  `;
-
-  host.appendChild(wrapper);
-  renderModelPickerList();
-
-  // Автозагрузка списка моделей сразу при открытии, если URL и ключ уже введены
-  if (s.useCustomApi && s.customApiUrl && getApiKey()) {
-    fetchModelsAutomatically(true);
-  }
-
-  document.getElementById('mem_cfg_enabled').addEventListener('change', (e) => {
-    getSettings().enabled = e.target.checked;
-    saveSettings();
-    updateInjection();
-    updateWidgetBadge();
-  });
-
-  document.getElementById('mem_cfg_chibi').addEventListener('change', (e) => {
-    getSettings().showChibi = e.target.checked;
-    saveSettings();
-    updateWidgetBadge();
-  });
-
-  document.getElementById('mem_cfg_mascot_mode').addEventListener('change', (e) => {
-    getSettings().mascotMode = e.target.value;
-    saveSettings();
-    renderWidgetMascot();
-  });
-
-  document.getElementById('mem_cfg_auto').addEventListener('change', (e) => {
-    getSettings().autoExtract = e.target.checked;
-    saveSettings();
-  });
-
-  document.getElementById('mem_cfg_interval').addEventListener('change', (e) => {
-    getSettings().everyNMessages = Math.max(4, Number(e.target.value) || 16);
-    saveSettings();
-  });
-
-  document.getElementById('mem_cfg_depth').addEventListener('change', (e) => {
-    getSettings().injectionDepth = Math.max(0, Number(e.target.value) || 0);
-    saveSettings();
-    updateInjection();
-  });
-
-  document.getElementById('mem_cfg_use_custom_api').addEventListener('change', (e) => {
-    getSettings().useCustomApi = e.target.checked;
-    saveSettings();
-    document.getElementById('mem_custom_api_block').style.display = e.target.checked ? 'flex' : 'none';
-    if (e.target.checked) fetchModelsAutomatically(false);
-  });
-
-  document.getElementById('mem_cfg_api_url').addEventListener('input', (e) => {
-    getSettings().customApiUrl = e.target.value.trim();
-    saveSettings();
-    scheduleAutoModelFetch();
-  });
-
-  document.getElementById('mem_cfg_api_key').addEventListener('input', (e) => {
-    setApiKey(e.target.value);
-    scheduleAutoModelFetch();
-  });
-
-  document.getElementById('mem_cfg_refresh_models').addEventListener('click', () => {
-    fetchModelsAutomatically(false);
-  });
-
-  document.getElementById('mem_cfg_open_modal').addEventListener('click', openModal);
-
-  document.getElementById('mem_cfg_reset_pos').addEventListener('click', () => {
-    getSettings().widgetPos = null;
-    saveSettings();
-    const w = document.getElementById('memorize-chibi-widget');
-    if (w) {
-      w.style.left = 'auto';
-      w.style.top = 'auto';
-      w.style.right = '12px';
-      w.style.bottom = '110px';
-    }
-  });
-}
+registerUiHooks({ showBubble, setSyncingState, renderModalContent, updateWidgetBadge });
 
 /* === Жизненный цикл и гарантированный инжект перед каждым ответом === */
 function bindEvents() {
+  if (eventsBound) return;
   const ctx = getST();
   if (!ctx?.eventSource || !ctx?.event_types) return;
+  eventsBound = true;
   const ev = ctx.event_types;
 
+  const syncProcessedIndex = () => {
+    const latestCtx = getST();
+    const chat = latestCtx?.chat;
+    const store = getChatStore();
+    if (Array.isArray(chat) && store.lastProcessedIndex > chat.length) {
+      store.lastProcessedIndex = chat.length;
+      latestCtx?.saveMetadata?.();
+    }
+  };
+
   const refreshState = () => {
+    syncProcessedIndex();
     updateInjection();
     updateWidgetBadge();
     if (document.getElementById('memorize-modal-backdrop')?.classList.contains('open')) {
@@ -1700,6 +802,7 @@ function bindEvents() {
 
   if (ev.MESSAGE_RECEIVED) {
     ctx.eventSource.on(ev.MESSAGE_RECEIVED, async () => {
+      const latestCtx = getST();
       const store = getChatStore();
       if (store.activeFlashback?.text) {
         store.activeFlashback.firedCount = (store.activeFlashback.firedCount || 0) + 1;
@@ -1711,10 +814,13 @@ function bindEvents() {
       const settings = getSettings();
       if (!settings.enabled || !settings.autoExtract) return;
 
-      const chat = Array.isArray(ctx.chat) ? ctx.chat : [];
+      const chat = Array.isArray(latestCtx?.chat) ? latestCtx.chat : [];
+      if (store.lastProcessedIndex > chat.length) {
+        store.lastProcessedIndex = chat.length;
+      }
       const unsummarized = chat.length - (store.lastProcessedIndex || 0);
 
-      if (unsummarized >= (Number(settings.everyNMessages) || 16)) {
+      if (unsummarized >= Math.max(4, toFiniteNumber(settings.everyNMessages, 16))) {
         await runExtraction(false);
       }
     });
@@ -1724,7 +830,7 @@ function bindEvents() {
 function initExtension() {
   createWidget();
   createModal();
-  mountSettingsPanel();
+  mountSettingsPanel({ openModal, renderWidgetMascot, updateWidgetBadge });
   bindEvents();
   updateInjection();
   updateWidgetBadge();
@@ -1734,7 +840,11 @@ jQuery(() => {
   const ctx = getST();
   if (ctx?.eventSource && ctx?.event_types?.APP_READY) {
     ctx.eventSource.on(ctx.event_types.APP_READY, () => setTimeout(initExtension, 150));
+  }
+  // Также запускаем инициализацию, если расширение установлено на лету уже после APP_READY
+  if (document.getElementById('extensions_settings') || document.getElementById('send_textarea')) {
+    setTimeout(initExtension, 200);
   } else {
-    setTimeout(initExtension, 500);
+    setTimeout(initExtension, 800);
   }
 });
