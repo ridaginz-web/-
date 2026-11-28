@@ -33,7 +33,8 @@ let bubbleTimer = null;
 let eventsBound = false;
 
 async function triggerFlashbackNow() {
-  const store = getChatStore();\n  if (!store.activeFlashback?.text) return;
+  const store = getChatStore();
+  if (!store.activeFlashback?.text) return;
 
   updateInjection();
   closeModal();
@@ -41,8 +42,7 @@ async function triggerFlashbackNow() {
 
   const sendArea = document.getElementById('send_textarea');
   const sendBtn = document.getElementById('send_but');
-  if (sendArea && typeof sendArea.value === 'string' && sendArea.value.trim() && sendBtn) {
-    sendBtn.click();
+  if (sendArea && typeof sendArea.value === 'string' && sendArea.value.trim() && sendBtn) {\n    sendBtn.click();
     return;
   }
 
