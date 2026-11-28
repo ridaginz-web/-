@@ -6,6 +6,25 @@ const LOCAL_MODELS_CACHE = 'memorize_studio_models_cache';
 
 const MAX_RECENT_CHAPTERS = 4;
 const MAX_AUTO_FACTS = 20;
+const MAX_TOTAL_FACTS = 34;
+
+export const FLASHBACK_MODES = {
+  thought: {
+    icon: '💭',
+    label: 'Мысль',
+    hint: 'Вскользь во взгляде, жесте или внутренней мысли (без слов вслух)',
+  },
+  dialogue: {
+    icon: '💬',
+    label: 'Вслух',
+    hint: 'Персонаж сам естественно упоминает это в разговоре',
+  },
+  trigger: {
+    icon: '⚡',
+    label: 'Триггер',
+    hint: 'Острая эмоциональная реакция, дежавю или яркая вспышка прошлого',
+  },
+};
 
 export const CATEGORIES = {
   events: { icon: '⏳', label: 'События', full: '⏳ События' },
@@ -319,10 +338,19 @@ export function buildFlashbackPrompt() {
   const fb = store.activeFlashback;
   if (!fb || !fb.text?.trim()) return '';
 
-  return `[ФОКУС ПАМЯТИ — ФЛЕШБЕК ПЕРСОНАЖА]
-В своём СЛЕДУЮЩЕМ ответе персонаж ({{char}}) должен живо и естественно вспомнить этот момент или факт из прошлого:
+  const mode = FLASHBACK_MODES[fb.mode] ? fb.mode : 'thought';
+  const modeInstruction =
+    mode === 'dialogue'
+      ? 'Пусть {{char}} естественно и уместно затронет или упомянет это воспоминание ВСЛУХ в своей прямой речи (намеком, вопросом или к слову в диалоге).'
+      : mode === 'trigger'
+      ? 'Пусть деталь текущей сцены сработает как эмоциональный ТРИГГЕР / дежавю: {{char}} ярко и остро переживает вспышку этого момента (смена интонации, пауза, взгляд, сильная внутренняя эмоция), влияющую на поведение в сцене.'
+      : 'Пусть {{char}} вспомнит это МОЛЧА И ТОНКО — через внутреннюю мысль, мимолётную ассоциацию, взгляд или жест, НЕ проговаривая факт напрямую вслух без повода.';
+
+  return `[ФОКУС ПАМЯТИ — ФЛЕШБЕК ПЕРСОНАЖА (${FLASHBACK_MODES[mode].label.toUpperCase()})]
+В своём СЛЕДУЮЩЕМ ответе персонаж ({{char}}) должен вспомнить этот момент или факт из прошлого:
 «${fb.text.trim()}»
-Органично вплети это воспоминание в текущую сцену — через внезапную ассоциацию, взгляд, деталь, внутреннюю мысль, эмоцию или прямую реплику, сохраняя характер {{char}} и не ломая ход ролевой.`;
+${modeInstruction}
+Сохраняй характер {{char}} и не ломай ход ролевой.`;
 }
 
 export function updateInjection() {
@@ -630,32 +658,26 @@ ${formattedChat}`;
     }
     store.chapters = chaptersToKeep;
 
-    const lockedFacts = store.facts.filter((f) => f.locked);
-    const seen = new Set(lockedFacts.map((f) => f.text.trim().toLowerCase()));
-    const nextFacts = [...lockedFacts];
-
-    for (const entry of parsed.facts.slice(0, MAX_AUTO_FACTS)) {
-      const clean = String(entry?.text || '').trim();
-      if (!clean || seen.has(clean.toLowerCase())) continue;
-      seen.add(clean.toLowerCase());
-      nextFacts.push({
-        id: uid('f'),
-        category: normalizeCategory(entry.category, clean),
-        text: clean,
-        enabled: true,
-        locked: false,
-      });
-    }
+    const prevOldUnlocked = store.facts.filter((f) => !f.locked);
+    const nextFacts = mergeExtractedFacts(store.facts, parsed.facts.slice(0, MAX_AUTO_FACTS));
+    const newCount = nextFacts.filter((f) => f.isNew).length;
 
     store.facts = nextFacts;
+    // Если активный флешбек ссылался на обновлённый факт, синхронизируем текст
+    if (store.activeFlashback?.id) {
+      const matched = store.facts.find((f) => f.id === store.activeFlashback.id);
+      if (matched) store.activeFlashback.text = matched.text;
+    }
+
     const latestChat = Array.isArray(latestCtx.chat) ? latestCtx.chat : chat;
     store.lastProcessedIndex = hasMoreChunks ? slice[slice.length - 1].idx + 1 : latestChat.length;
     await saveChatStore();
     uiHooks.renderModalContent();
+    const newSuffix = newCount > 0 && prevOldUnlocked.length > 0 ? ` · +${newCount} новых` : '';
     uiHooks.showBubble(
       hasMoreChunks
-        ? `Память обновлена (${store.facts.length}) · нажмите «✨ Сжать» для следующих сообщений`
-        : `Память обновлена (${store.facts.length}) ✨`,
+        ? `Память обновлена (${store.facts.length}${newSuffix}) · нажмите «✨ Сжать» дальше`
+        : `Память обновлена (${store.facts.length}${newSuffix}) ✨`,
       3600
     );
   } catch (err) {
@@ -665,6 +687,178 @@ ${formattedChat}`;
     isExtracting = false;
     uiHooks.setSyncingState(false);
   }
+}
+
+export function normalizeFactKey(text = '') {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractSigWords(norm = '') {
+  return norm.split(' ').filter((w) => w.length >= 4);
+}
+
+export function areFactsSimilar(a = '', b = '') {
+  const ka = normalizeFactKey(a);
+  const kb = normalizeFactKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  const shorter = ka.length <= kb.length ? ka : kb;
+  const longer = ka.length <= kb.length ? kb : ka;
+  if (shorter.length >= 18 && longer.includes(shorter)) return true;
+
+  const wa = extractSigWords(ka);
+  const wb = extractSigWords(kb);
+  const minLen = Math.min(wa.length, wb.length);
+  if (minLen >= 3) {
+    const setB = new Set(wb);
+    const shared = wa.filter((w) => setB.has(w)).length;
+    if (shared / minLen >= 0.72) return true;
+  }
+  return false;
+}
+
+export function mergeExtractedFacts(existingFacts = [], extractedEntries = []) {
+  const lockedFacts = existingFacts
+    .filter((f) => f && f.locked && f.text?.trim())
+    .map((f) => ({ ...f, isNew: false }));
+  const oldUnlocked = existingFacts.filter((f) => f && !f.locked && f.text?.trim());
+
+  const oldExactKeys = new Set(existingFacts.map((f) => normalizeFactKey(f.text)));
+  const result = [...lockedFacts];
+  const hasSimilarIn = (list, text) => list.some((item) => areFactsSimilar(item.text, text));
+
+  const freshExtracted = [];
+  for (const entry of extractedEntries) {
+    const clean = String(entry?.text || '').trim();
+    if (!clean) continue;
+    if (hasSimilarIn(result, clean) || hasSimilarIn(freshExtracted, clean)) continue;
+
+    const matchedOld = oldUnlocked.find((old) => areFactsSimilar(old.text, clean));
+    const exactExisted = oldExactKeys.has(normalizeFactKey(clean));
+
+    freshExtracted.push({
+      id: matchedOld?.id || uid('f'),
+      category: normalizeCategory(entry.category, clean),
+      text: clean,
+      enabled: matchedOld ? matchedOld.enabled !== false : true,
+      locked: false,
+      isNew: !exactExisted,
+    });
+  }
+
+  result.push(...freshExtracted);
+
+  const hasNewScene = freshExtracted.some((f) => f.category === 'scene');
+  const newEventsCount = freshExtracted.filter((f) => f.category === 'events').length;
+  let preservedProtected = 0;
+  let preservedEvents = 0;
+  let preservedScene = 0;
+
+  for (const old of oldUnlocked) {
+    if (result.length >= MAX_TOTAL_FACTS) break;
+    if (hasSimilarIn(result, old.text)) continue;
+
+    const cat = normalizeCategory(old.category, old.text);
+    if (cat === 'secrets' || cat === 'relations') {
+      if (preservedProtected < 14) {
+        result.push({ ...old, category: cat, isNew: false });
+        preservedProtected++;
+      }
+    } else if (cat === 'events' && newEventsCount < 3 && preservedEvents < 4) {
+      result.push({ ...old, category: cat, isNew: false });
+      preservedEvents++;
+    } else if (cat === 'scene' && !hasNewScene && preservedScene < 2) {
+      result.push({ ...old, category: cat, isNew: false });
+      preservedScene++;
+    }
+  }
+
+  return result.slice(0, MAX_TOTAL_FACTS);
+}
+
+export function exportMemoryPack() {
+  const store = getChatStore();
+  return JSON.stringify(
+    {
+      memorizePackVersion: 1,
+      exportedAt: new Date().toISOString(),
+      coreCanon: store.coreCanon || '',
+      chapters: Array.isArray(store.chapters) ? store.chapters : [],
+      facts: Array.isArray(store.facts)
+        ? store.facts.map((f) => ({
+            id: f.id || uid('f'),
+            category: normalizeCategory(f.category, f.text),
+            text: String(f.text || '').trim(),
+            enabled: f.enabled !== false,
+            locked: Boolean(f.locked),
+          }))
+        : [],
+      activeFlashback: store.activeFlashback || null,
+    },
+    null,
+    2
+  );
+}
+
+export async function importMemoryPack(rawJson, mode = 'replace') {
+  const parsed = typeof rawJson === 'string' ? extractJsonObject(rawJson) : rawJson;
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Некорректный JSON слепка памяти');
+  }
+  if (!Array.isArray(parsed.facts) && typeof parsed.coreCanon !== 'string' && !Array.isArray(parsed.chapters)) {
+    throw new Error('В данных нет слепка памяти Memorize');
+  }
+
+  const store = getChatStore();
+  store.previousSnapshot = createSnapshot(store);
+
+  const incomingFacts = (Array.isArray(parsed.facts) ? parsed.facts : [])
+    .filter((f) => f && String(f.text || '').trim())
+    .map((f) => ({
+      id: f.id || uid('f'),
+      category: normalizeCategory(f.category, f.text),
+      text: String(f.text).trim(),
+      enabled: f.enabled !== false,
+      locked: Boolean(f.locked),
+      isNew: true,
+    }));
+
+  const incomingChapters = (Array.isArray(parsed.chapters) ? parsed.chapters : [])
+    .filter((c) => c && String(c.text || '').trim())
+    .map((c) => ({
+      id: c.id || uid('ch'),
+      range: String(c.range || 'Прошлый чат'),
+      text: String(c.text).trim(),
+    }));
+
+  if (mode === 'merge') {
+    if (parsed.coreCanon?.trim()) {
+      store.coreCanon = [store.coreCanon, parsed.coreCanon.trim()].filter(Boolean).join('\n\n');
+    }
+    const existingKeys = new Set(store.facts.map((f) => normalizeFactKey(f.text)));
+    for (const f of incomingFacts) {
+      if (!existingKeys.has(normalizeFactKey(f.text))) {
+        store.facts.push(f);
+        existingKeys.add(normalizeFactKey(f.text));
+      }
+    }
+    store.chapters = [...store.chapters, ...incomingChapters].slice(-MAX_RECENT_CHAPTERS);
+  } else {
+    store.coreCanon = typeof parsed.coreCanon === 'string' ? parsed.coreCanon.trim() : '';
+    store.chapters = incomingChapters.slice(-MAX_RECENT_CHAPTERS);
+    store.facts = incomingFacts;
+    store.activeFlashback = parsed.activeFlashback || null;
+  }
+
+  const chatLen = Array.isArray(getST()?.chat) ? getST().chat.length : 0;
+  store.lastProcessedIndex = Math.min(store.lastProcessedIndex || 0, chatLen);
+  await saveChatStore();
+  uiHooks.renderModalContent();
+  return { facts: store.facts.length, chapters: store.chapters.length };
 }
 
 export async function rollbackSnapshot() {
