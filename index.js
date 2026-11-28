@@ -42,7 +42,8 @@ async function triggerFlashbackNow() {
 
   const sendArea = document.getElementById('send_textarea');
   const sendBtn = document.getElementById('send_but');
-  if (sendArea && typeof sendArea.value === 'string' && sendArea.value.trim() && sendBtn) {\n    sendBtn.click();
+  if (sendArea && typeof sendArea.value === 'string' && sendArea.value.trim() && sendBtn) {
+    sendBtn.click();
     return;
   }
 
