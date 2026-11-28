@@ -47,28 +47,36 @@ const DEFAULT_EXTRACTION_PROMPT = `Ты — модуль долгосрочно�
 ПРАВИЛА ДЛЯ ДЛИННЫХ ЧАТОВ:
 1. Пиши на русском языке, сухо, точно и без художественной воды (1 запись = 1 конкретный факт).
 2. "new_chapter": краткая выжимка ТОЛЬКО новых сообщений из блока анализа (1-3 компактных предложения).
-3. Распредели самые важные актуальные факты по 4 рубрикам (объединяй дубликаты, обновляй изменившиеся статусы и удаляй проходные мелочи, суммарно не более 18-20 пунктов):
-   - "events": ключевые произошедшие события и повороты.
-   - "relations": чувства, динамика близости/доверия, ссоры, флирт, договорённости между персонажами.
-   - "secrets": признания, тайны, личные травмы/диагнозы, обещания, важные предметы и детали.
-   - "scene": где сейчас находятся персонажи, время/обстановка и что происходит в моменте (1-3 пункта).
-4. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери канона. Иначе оставь "core_canon" как есть.
-5. Верни ТОЛЬКО валидный JSON строго по схеме:
+3. Распредели самые важные факты по 4 рубрикам (суммарно не более 18-20 пунктов):
+   - "events": ключевые произошедшие события и сюжетные повороты (что уже случилось).
+   - "relations": АКТУАЛЬНОЕ состояние отношений, чувств и доверия НА КОНЕЦ новых сообщений. ВАЖНО: если произошла ссора, предательство, охлаждение («от любви до ненависти») или сближение — ПОЛНОСТЬЮ ЗАМЕНИ прежний статус отношений новым, не оставляя устаревшую симпатию или старое доверие! Перечисли все действующие грани отношений.
+   - "secrets": признания, скрытые тайны, личные травмы/диагнозы, обещания, важные предметы и улики.
+   - "scene": где герои находятся ПРЯМО СЕЙЧАС, обстановка и что происходит в моменте (1-3 пункта).
+4. "obsolete": массив точных цитат или ключевых фраз тех старых фактов из ТЕКУЩЕЙ ПАМЯТИ, которые стали ЛОЖНЫМИ, устарели или опровергнуты новыми событиями (если таких нет — пустой массив []).
+5. "core_canon": если передан список старых глав для уплотнения ("chapters_to_compress"), объедини их со старым "core_canon" в один плотный абзац (4-6 предложений) без потери канона. Иначе оставь "core_canon" как есть.
+6. Верни ТОЛЬКО валидный JSON строго по схеме:
 
 {
   "core_canon": "Сжатая основа прошлых арок сюжета (если есть)",
   "new_chapter": "Краткий итог новых проанализированных сообщений (1-3 предложения)",
-  "events": ["Ключевое событие"],
-  "relations": ["Статус отношений и чувств"],
+  "events": ["Ключевое произошедшее событие"],
+  "relations": ["Актуальный статус отношений и эмоций на данный момент"],
   "secrets": ["Секрет, признание, деталь или обещание"],
-  "scene": ["Текущая локация и ситуация"]
+  "scene": ["Текущая локация и ситуация"],
+  "obsolete": ["Фрагмент старого факта, который больше не актуален"]
 }`;
 
-const DEFAULT_INJECTION_TEMPLATE = `[ДОЛГОСРОЧНАЯ ПАМЯТЬ ИСТОРИИ — учитывай эти события и факты из прошлых сцен]
-{{canon_block}}
-{{chapters_block}}
-{{facts_block}}
-[Конец блока памяти. Не противоречь указанным фактам.]`;
+const DEFAULT_INJECTION_TEMPLATE = `<story_memory>
+[ДОЛГОСРОЧНАЯ ПАМЯТЬ ИСТОРИИ — СЛЕПОК ПРОШЛЫХ СЦЕН]
+ПРАВИЛА ИСПОЛЬЗОВАНИЯ ПАМЯТИ:
+1. ПРИОРИТЕТ ЖИВОГО ЧАТА: эта сводка обновляется периодически. Если в последних сообщениях диалога произошёл резкий поворот, ссора, предательство, смена чувств («от любви до ненависти» или наоборот) либо смена локации — БЕЗУСЛОВНО ОРИЕНТИРУЙСЯ НА ПОСЛЕДНИЕ СООБЩЕНИЯ ЧАТА, даже если в блоке состояния ниже ещё записан прежний статус.
+2. ПАССИВНЫЙ ФОН, А НЕ СПИСОК ЗАДАЧ: не пытайся упомянуть сразу все факты, прошлые события и детали в одном ответе. Опирайся на них естественно, только когда это уместно по ходу сцены.
+3. ЛОГИКА ЗНАНИЙ И ТАЙН: факты из «Секретов» держи в подтексте — персонаж знает лишь то, чему был свидетелем или что ему открыли.
+
+{{past_block}}
+{{secrets_block}}
+{{state_block}}
+</story_memory>`;
 
 const DEFAULT_SETTINGS = {
   enabled: true,
@@ -87,7 +95,7 @@ const DEFAULT_SETTINGS = {
   customMaxTokens: 1600,
   extractionPrompt: DEFAULT_EXTRACTION_PROMPT,
   injectionTemplate: DEFAULT_INJECTION_TEMPLATE,
-  schemaVersion: 4,
+  schemaVersion: 5,
   widgetPos: null,
 };
 
@@ -183,15 +191,11 @@ export function getSettings() {
   for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
     if (s[k] === undefined) s[k] = v;
   }
-  // Мягкое авто-обновление шаблонов из ранних версий (не затирает ручные правки v4)
-  if ((toFiniteNumber(s.schemaVersion, 0)) < 4) {
-    if (!s.extractionPrompt || !s.extractionPrompt.includes('core_canon')) {
-      s.extractionPrompt = DEFAULT_EXTRACTION_PROMPT;
-    }
-    if (!s.injectionTemplate || s.injectionTemplate.includes('{{summary_block}}')) {
-      s.injectionTemplate = DEFAULT_INJECTION_TEMPLATE;
-    }
-    s.schemaVersion = 4;
+  // Авто-обновление шаблонов выжимки и инжекта до актуальной схемы v5
+  if ((toFiniteNumber(s.schemaVersion, 0)) < 5) {
+    s.extractionPrompt = DEFAULT_EXTRACTION_PROMPT;
+    s.injectionTemplate = DEFAULT_INJECTION_TEMPLATE;
+    s.schemaVersion = 5;
     ctx.saveSettingsDebounced?.();
   }
   return s;
@@ -313,16 +317,32 @@ export function buildPromptText() {
         activeChapters.map((c) => `• [${c.range || 'Сцена'}] ${c.text.trim()}`).join('\n')
       : '';
 
+  const byCat = {};
   const grouped = [];
   for (const catKey of CATEGORY_KEYS) {
     const items = activeFacts.filter((f) => normalizeCategory(f.category, f.text) === catKey);
-    if (items.length > 0) {
-      grouped.push(`${CATEGORIES[catKey].full}:\n` + items.map((f) => `- ${f.text.trim()}`).join('\n'));
-    }
+    byCat[catKey] =
+      items.length > 0 ? `${CATEGORIES[catKey].full}:\n` + items.map((f) => `- ${f.text.trim()}`).join('\n') : '';
+    if (byCat[catKey]) grouped.push(byCat[catKey]);
   }
   const factsBlock = grouped.join('\n\n');
 
+  const pastParts = [canonBlock, chaptersBlock, byCat.events].filter(Boolean);
+  const pastBlock = pastParts.length ? `<past_context>\n${pastParts.join('\n\n')}\n</past_context>` : '';
+
+  const secretsBlock = byCat.secrets
+    ? `<secrets_and_details>\n${byCat.secrets}\n</secrets_and_details>`
+    : '';
+
+  const stateParts = [byCat.relations, byCat.scene].filter(Boolean);
+  const stateBlock = stateParts.length
+    ? `<last_recorded_state note="состояние на момент прошлой записи; если последние сообщения чата изменили эмоции, отношения или локацию — следуй последним сообщениям чата">\n${stateParts.join('\n\n')}\n</last_recorded_state>`
+    : '';
+
   return (settings.injectionTemplate || DEFAULT_INJECTION_TEMPLATE)
+    .replace('{{past_block}}', pastBlock)
+    .replace('{{secrets_block}}', secretsBlock)
+    .replace('{{state_block}}', stateBlock)
     .replace('{{canon_block}}', canonBlock)
     .replace('{{chapters_block}}', chaptersBlock)
     .replace('{{facts_block}}', factsBlock)
@@ -541,6 +561,9 @@ export function parseMemoryOutput(rawText) {
           : '',
       new_chapter: typeof parsed.new_chapter === 'string' ? parsed.new_chapter.trim() : '',
       facts: categorized,
+      obsolete: Array.isArray(parsed.obsolete)
+        ? parsed.obsolete.map((x) => String(x || '').trim()).filter(Boolean)
+        : [],
     };
   }
 
@@ -556,6 +579,7 @@ export function parseMemoryOutput(rawText) {
       core_canon: '',
       new_chapter: '',
       facts: lines.map((t) => ({ category: inferFactCategory(t), text: t })),
+      obsolete: [],
     };
   }
   return null;
@@ -705,7 +729,11 @@ ${formattedChat}`;
     store.chapters = chaptersToKeep;
 
     const prevOldUnlocked = store.facts.filter((f) => !f.locked);
-    const nextFacts = mergeExtractedFacts(store.facts, parsed.facts.slice(0, MAX_AUTO_FACTS));
+    const nextFacts = mergeExtractedFacts(
+      store.facts,
+      parsed.facts.slice(0, MAX_AUTO_FACTS),
+      parsed.obsolete || []
+    );
     const newCount = nextFacts.filter((f) => f.isNew).length;
 
     store.facts = nextFacts;
@@ -767,11 +795,24 @@ export function areFactsSimilar(a = '', b = '') {
   return false;
 }
 
-export function mergeExtractedFacts(existingFacts = [], extractedEntries = []) {
+export function mergeExtractedFacts(existingFacts = [], extractedEntries = [], obsoleteList = []) {
   const lockedFacts = existingFacts
     .filter((f) => f && f.locked && f.text?.trim())
     .map((f) => ({ ...f, isNew: false }));
-  const oldUnlocked = existingFacts.filter((f) => f && !f.locked && f.text?.trim());
+
+  const isMarkedObsolete = (text = '') => {
+    const normT = normalizeFactKey(text);
+    if (!normT) return false;
+    return obsoleteList.some((obs) => {
+      const normObs = normalizeFactKey(obs);
+      if (!normObs) return false;
+      return areFactsSimilar(text, obs) || (normObs.length >= 10 && normT.includes(normObs));
+    });
+  };
+
+  const oldUnlocked = existingFacts.filter(
+    (f) => f && !f.locked && f.text?.trim() && !isMarkedObsolete(f.text)
+  );
 
   const oldExactKeys = new Set(existingFacts.map((f) => normalizeFactKey(f.text)));
   const result = [...lockedFacts];
@@ -798,9 +839,12 @@ export function mergeExtractedFacts(existingFacts = [], extractedEntries = []) {
 
   result.push(...freshExtracted);
 
+  // Секреты храним бережно (накопительно), а Отношения и Сцену обновляем динамически (чтобы не оставалось старой «любви» после ссоры!)
   const hasNewScene = freshExtracted.some((f) => f.category === 'scene');
+  const hasNewRelations = freshExtracted.some((f) => f.category === 'relations');
   const newEventsCount = freshExtracted.filter((f) => f.category === 'events').length;
-  let preservedProtected = 0;
+  let preservedSecrets = 0;
+  let preservedRelations = 0;
   let preservedEvents = 0;
   let preservedScene = 0;
 
@@ -809,11 +853,14 @@ export function mergeExtractedFacts(existingFacts = [], extractedEntries = []) {
     if (hasSimilarIn(result, old.text)) continue;
 
     const cat = normalizeCategory(old.category, old.text);
-    if (cat === 'secrets' || cat === 'relations') {
-      if (preservedProtected < 14) {
+    if (cat === 'secrets') {
+      if (preservedSecrets < 14) {
         result.push({ ...old, category: cat, isNew: false });
-        preservedProtected++;
+        preservedSecrets++;
       }
+    } else if (cat === 'relations' && !hasNewRelations && preservedRelations < 4) {
+      result.push({ ...old, category: cat, isNew: false });
+      preservedRelations++;
     } else if (cat === 'events' && newEventsCount < 3 && preservedEvents < 4) {
       result.push({ ...old, category: cat, isNew: false });
       preservedEvents++;
