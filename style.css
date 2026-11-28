@@ -1,5 +1,7 @@
-/* === Memorize v1.4: Top Category Tabs, Mochi Chibis & Flashbacks === */
-:root {
+/* === Memorize v1.4.1: Top Category Tabs, Mochi Chibis & Flashbacks === */
+#memorize-chibi-widget,
+#memorize-modal-backdrop,
+#memorize-settings-panel {
   --mem-surface: rgba(18, 20, 30, 0.96);
   --mem-elevated: rgba(28, 32, 48, 0.72);
   --mem-line: rgba(165, 180, 225, 0.16);
@@ -444,50 +446,6 @@
   background: rgba(255, 217, 125, 0.2);
   border-color: rgba(255, 217, 125, 0.48);
   color: var(--mem-gold);
-}
-
-/* Минималистичные пилюли вкладок категорий (Отношения, Секреты, События, Сцена) */
-.mem-cat-strip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding-bottom: 1px;
-}
-
-.mem-cat-strip::-webkit-scrollbar {
-  display: none;
-}
-
-.mem-cat-pill {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid transparent;
-  color: var(--mem-sub);
-  font-size: 11.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.mem-cat-pill.active {
-  background: rgba(155, 184, 255, 0.17);
-  border-color: rgba(155, 184, 255, 0.38);
-  color: var(--mem-text);
-  font-weight: 600;
-}
-
-.mem-cat-count {
-  font-size: 10.5px;
-  opacity: 0.72;
 }
 
 /* Баннер активного Флешбека */
